@@ -875,7 +875,22 @@ function Bundles({ bundles, loading, error }) {
   );
 }
 
-function Community({ questions, loading, error, onAsk, asking, onOpenChat }) {
+function Community({ questions, loading, error, onAsk, asking, onOpenChat, session, onAnswer }) {
+  const isAdmin = session?.profile?.role === "admin" || session?.profile?.role === "instructor";
+  const [answerDrafts, setAnswerDrafts] = useState({});
+  const [answering, setAnswering] = useState(null);
+
+  const submitAnswer = async (id) => {
+    if (!answerDrafts[id]?.trim()) return;
+    setAnswering(id);
+    try {
+      await onAnswer(id, answerDrafts[id]);
+      setAnswerDrafts((d) => ({ ...d, [id]: "" }));
+    } finally {
+      setAnswering(null);
+    }
+  };
+
   const [name, setName] = useState("");
   const [question, setQuestion] = useState("");
   const [posting, setPosting] = useState(false);
@@ -938,6 +953,19 @@ function Community({ questions, loading, error, onAsk, asking, onOpenChat }) {
                   {q.answer ? (
                     <div className="pl-3 border-l-2 text-sm" style={{ borderColor: "#3DA5FF", color: "#0A1A38" }}>
                       <span className="font-semibold" style={{ color: "#1E56A0" }}>Gsol Design Academy: </span>{q.answer}
+                    </div>
+                  ) : isAdmin ? (
+                    <div className="flex gap-2 mt-2">
+                      <input
+                        value={answerDrafts[q.id] || ""}
+                        onChange={(e) => setAnswerDrafts((d) => ({ ...d, [q.id]: e.target.value }))}
+                        placeholder="Write a reply…"
+                        className="flex-1 px-3 py-2 rounded-lg border text-sm outline-none"
+                        style={{ borderColor: "#0A1A3822" }}
+                      />
+                      <button onClick={() => submitAnswer(q.id)} disabled={answering === q.id} className="px-4 py-2 rounded-lg text-white text-sm flex items-center gap-1.5" style={{ background: "#1E56A0" }}>
+                        {answering === q.id && <Loader2 size={13} className="animate-spin" />} Reply
+                      </button>
                     </div>
                   ) : (
                     <div className="text-xs italic" style={{ color: "#0A1A3866" }}>Awaiting a reply from the team.</div>
@@ -1061,6 +1089,15 @@ export default function App() {
     loadQuestions();
   };
 
+  const answerQuestion = async (id, answer) => {
+    await api(`/rest/v1/community_questions?id=eq.${id}`, {
+      method: "PATCH",
+      token: session.access_token,
+      body: { answer, answered_by: session.user.id, answered_at: new Date().toISOString() },
+    });
+    loadQuestions();
+  };
+
   const loadEnrollments = useCallback(async (token, uid) => {
     setEnrollLoading(true);
     const data = await api("/rest/v1/enrollments", { token, params: { student_id: `eq.${uid}`, select: "*" } }).catch(() => []);
@@ -1068,8 +1105,9 @@ export default function App() {
     setEnrollLoading(false);
   }, []);
 
-  const onAuthed = (data) => {
-    setSession(data);
+  const onAuthed = async (data) => {
+    const profile = await api("/rest/v1/profiles", { token: data.access_token, params: { id: `eq.${data.user.id}`, select: "role,full_name" } }).catch(() => []);
+    setSession({ ...data, profile: profile?.[0] });
     setAuthOpen(false);
     loadEnrollments(data.access_token, data.user.id);
     setPage("dashboard");
@@ -1110,7 +1148,7 @@ export default function App() {
       {page === "courses" && <Courses courses={courses} loading={coursesLoading} error={coursesError} session={session} checkout={checkout} checkingOut={checkingOut} />}
       {page === "bundles" && <Bundles bundles={bundles} loading={bundlesLoading} error={bundlesError} />}
       {page === "ebooks" && <Ebooks ebooks={ebooks} loading={ebooksLoading} error={ebooksError} />}
-      {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} />}
+      {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} session={session} onAnswer={answerQuestion} />}
       {page === "dashboard" && session && <Dashboard session={session} courses={courses} enrollments={enrollments} loading={enrollLoading} openCourse={openCourse} />}
       {page === "player" && session && <Player course={activeCourse} session={session} token={session.access_token} />}
       <footer style={{ background: "#0A1A38" }} className="pt-14 pb-8">
