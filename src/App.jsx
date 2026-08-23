@@ -1,8 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { Icosahedron, Points, PointMaterial } from "@react-three/drei";
-import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Circle, MessageSquare, PlayCircle, ChevronRight, ShieldCheck, TrendingUp, Send, Menu, X, LogOut, Loader2, Sparkles, Award, Users, Star, ArrowRight, Zap, Package, Bot, HelpCircle } from "lucide-react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { CheckCircle2, Circle, MessageSquare, PlayCircle, ChevronRight, ShieldCheck, TrendingUp, Send, Menu, X, LogOut, Loader2, Sparkles, Award, Users, Clock, Star, ArrowRight, Zap } from "lucide-react";
 
 const SUPABASE_URL = "https://qiymevvbgpbeuyzafciu.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpeW1ldnZiZ3BiZXV5emFmY2l1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNjU3NTgsImV4cCI6MjEwMjk0MTc1OH0.ZhoUN02CGW3RenUP5nHSlDzS_gXtnnItSVtZMyQ1aWg";
@@ -36,160 +33,7 @@ ${FONT_IMPORT}
 }
 `;
 
-/* ---------- 3D hero scene: a rotating wireframe icosahedron with a drifting
-   point-field, standing in for "blueprint geometry" without being literal.
-   Kept to the hero only — a full 3D scene per section would hurt load time
-   and readability on a course-catalog site, so this is the one deliberate
-   "wow" moment rather than a gimmick repeated everywhere. ---------- */
-function FloatingGeo() {
-  const ref = useRef();
-  useFrame((state, delta) => {
-    if (ref.current) {
-      ref.current.rotation.x += delta * 0.08;
-      ref.current.rotation.y += delta * 0.12;
-    }
-  });
-  return (
-    <Icosahedron ref={ref} args={[1.6, 1]} position={[1.4, 0, 0]}>
-      <meshBasicMaterial color="#3DA5FF" wireframe transparent opacity={0.55} />
-    </Icosahedron>
-  );
-}
-
-function ParticleField() {
-  const ref = useRef();
-  const [positions] = useState(() => {
-    const arr = new Float32Array(300 * 3);
-    for (let i = 0; i < 300; i++) {
-      arr[i * 3] = (Math.random() - 0.5) * 10;
-      arr[i * 3 + 1] = (Math.random() - 0.5) * 6;
-      arr[i * 3 + 2] = (Math.random() - 0.5) * 4;
-    }
-    return arr;
-  });
-  useFrame((state, delta) => { if (ref.current) ref.current.rotation.y += delta * 0.02; });
-  return (
-    <Points ref={ref} positions={positions} stride={3}>
-      <PointMaterial color="#7FC0FF" size={0.03} sizeAttenuation transparent opacity={0.6} />
-    </Points>
-  );
-}
-
-function HeroScene() {
-  return (
-    <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.9 }}>
-      <Suspense fallback={null}>
-        <Canvas camera={{ position: [0, 0, 5], fov: 50 }}>
-          <ParticleField />
-          <FloatingGeo />
-        </Canvas>
-      </Suspense>
-    </div>
-  );
-}
-
-/* ---------- Tilt card: subtle 3D pointer-tracked tilt for a "futuristic"
-   feel on hover, used across course/bundle cards ---------- */
-function TiltCard({ children, className, style }) {
-  const ref = useRef(null);
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
-  const onMove = (e) => {
-    const r = ref.current.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width - 0.5;
-    const py = (e.clientY - r.top) / r.height - 0.5;
-    setTilt({ x: py * -8, y: px * 8 });
-  };
-  return (
-    <div
-      ref={ref}
-      onMouseMove={onMove}
-      onMouseLeave={() => setTilt({ x: 0, y: 0 })}
-      className={className}
-      style={{ ...style, transform: `perspective(800px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`, transition: "transform 0.15s ease-out" }}
-    >
-      {children}
-    </div>
-  );
-}
-
-/* ---------- Floating AI support widget: answers from live academy data via
-   the support-agent edge function; falls back gracefully if unconfigured ---------- */
-function ChatWidget({ open, setOpen }) {
-  const [messages, setMessages] = useState([{ role: "assistant", content: "Hi! I'm the Gsol Design Academy assistant. Ask me about any course, pricing, or how enrollment works." }]);
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const scrollRef = useRef(null);
-
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages]);
-
-  const send = async () => {
-    if (!draft.trim() || sending) return;
-    const userMsg = { role: "user", content: draft };
-    const nextMessages = [...messages, userMsg];
-    setMessages(nextMessages);
-    setDraft("");
-    setSending(true);
-    try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/support-agent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: ANON_KEY },
-        body: JSON.stringify({ message: userMsg.content, history: messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role, content: m.content })) }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Agent error");
-      setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
-    } catch (e) {
-      setMessages((m) => [...m, { role: "assistant", content: `I'm not able to answer right now (${e.message}). Try the community board, or a human will follow up there.` }]);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <>
-      <motion.button
-        onClick={() => setOpen((o) => !o)}
-        whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: 0.95 }}
-        className="fixed bottom-5 right-5 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl"
-        style={{ background: "linear-gradient(135deg,#1E56A0,#3DA5FF)" }}
-      >
-        {open ? <X color="#fff" size={22} /> : <Bot color="#fff" size={24} />}
-      </motion.button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="fixed bottom-24 right-5 z-50 w-[92vw] max-w-sm rounded-2xl overflow-hidden flex flex-col"
-            style={{ height: 460, background: "#fff", boxShadow: "0 20px 60px #0A1A3855" }}
-          >
-            <div className="px-4 py-3 flex items-center gap-2" style={{ background: "#0A1A38" }}>
-              <Bot size={18} color="#3DA5FF" />
-              <span className="text-sm font-semibold" style={{ color: "#fff", fontFamily: "'Oswald',sans-serif" }}>Gsol Support Agent</span>
-            </div>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-              {messages.map((m, i) => (
-                <div key={i} className="text-sm px-3 py-2 rounded-xl max-w-[85%]"
-                  style={{ background: m.role === "user" ? "#0A1A38" : "#F0F4FA", color: m.role === "user" ? "#fff" : "#0A1A38", marginLeft: m.role === "user" ? "auto" : 0 }}>
-                  {m.content}
-                </div>
-              ))}
-              {sending && <div className="text-xs flex items-center gap-1.5" style={{ color: "#0A1A3899" }}><Loader2 size={12} className="animate-spin" /> Thinking…</div>}
-            </div>
-            <div className="p-3 border-t flex gap-2" style={{ borderColor: "#0A1A3814" }}>
-              <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Ask about a course, price, anything…" className="flex-1 px-3 py-2 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
-              <button onClick={send} className="px-3 py-2 rounded-lg text-white" style={{ background: "#1E56A0" }}><Send size={15} /></button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
-  );
-}
-
-
+function isWeekendPromo() {
   const day = new Date().getDay();
   return day === 0 || day === 5 || day === 6;
 }
@@ -341,7 +185,7 @@ function Nav({ page, setPage, session, setAuthOpen, signOut, menuOpen, setMenuOp
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-  const items = session ? [["home", "Home"], ["courses", "Courses"], ["bundles", "Bundles"], ["ebooks", "Ebooks"], ["community", "Community"], ["dashboard", "Dashboard"]] : [["home", "Home"], ["courses", "Courses"], ["bundles", "Bundles"], ["ebooks", "Ebooks"], ["community", "Community"]];
+  const items = session ? [["home", "Home"], ["courses", "Courses"], ["ebooks", "Ebooks"], ["dashboard", "Dashboard"]] : [["home", "Home"], ["courses", "Courses"], ["ebooks", "Ebooks"]];
   return (
     <header className="sticky top-0 z-40 transition-all" style={{ background: scrolled ? "#0A1A38F2" : "#0A1A38", backdropFilter: "blur(10px)", borderBottom: scrolled ? "1px solid #ffffff14" : "1px solid transparent", boxShadow: scrolled ? "0 8px 30px #0A1A3840" : "none" }}>
       <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
@@ -454,7 +298,6 @@ function Home({ setPage, courses, loading }) {
       {/* HERO */}
       <section className="relative overflow-hidden" style={{ background: "linear-gradient(160deg,#0A1A38,#0F2450 55%,#14294F)" }}>
         <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
-        <HeroScene />
         <div className="absolute top-10 -right-20 w-72 h-72 rounded-full float pointer-events-none" style={{ background: "radial-gradient(circle,#3DA5FF3a,transparent 70%)" }} />
         <div className="absolute bottom-0 -left-24 w-96 h-96 rounded-full float pointer-events-none" style={{ background: "radial-gradient(circle,#1E56A030,transparent 70%)", animationDelay: "1.5s" }} />
 
@@ -493,9 +336,6 @@ function Home({ setPage, courses, loading }) {
               </button>
               <button onClick={() => setPage("ebooks")} className="px-7 py-3.5 rounded-full font-semibold text-sm border" style={{ borderColor: "#ffffff33", color: "#fff" }}>
                 Browse ebooks
-              </button>
-              <button onClick={() => setPage("community")} className="px-7 py-3.5 rounded-full font-semibold text-sm border flex items-center gap-2" style={{ borderColor: "#ffffff33", color: "#fff" }}>
-                <HelpCircle size={16} /> Ask a question
               </button>
             </div>
           </Reveal>
@@ -834,124 +674,7 @@ function Player({ course, session, token }) {
   );
 }
 
-function Bundles({ bundles, loading, error }) {
-  const weekend = isWeekendPromo();
-  return (
-    <div style={{ background: "#F7F8FA" }}>
-      <div className="max-w-6xl mx-auto px-5 py-14">
-        <TitleBlock label="INDEX" code="BUNDLES" />
-        <h2 className="mt-4 mb-3" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.2rem", color: "#0A1A38" }}>Buy more, pay less</h2>
-        <p className="mb-8 text-sm max-w-lg" style={{ color: "#0A1A3899" }}>Pick multiple courses in one bundle and save compared to buying them one at a time.</p>
-        {error && <div className="mb-6 p-4 rounded-md text-sm" style={{ background: "#c0392b1A", color: "#c0392b" }}>Couldn't load bundles: {error}</div>}
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm" style={{ color: "#0A1A38" }}><Loader2 size={16} className="animate-spin" /> Loading bundles…</div>
-        ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {bundles.map((b, i) => (
-              <Reveal key={b.id} delay={(i % 3) * 80}>
-                <TiltCard className="p-6 rounded-2xl border flex flex-col h-full" style={{ borderColor: "#0A1A3814", background: "#fff", boxShadow: "0 4px 20px #0A1A380a" }}>
-                  <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-4" style={{ background: "linear-gradient(135deg,#1E56A0,#3DA5FF)" }}>
-                    <Package size={20} color="#fff" />
-                  </div>
-                  <h3 className="font-semibold text-lg" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{b.name}</h3>
-                  <p className="text-sm mt-1.5 flex-1" style={{ color: "#0A1A3899" }}>{b.description}</p>
-                  <div className="mt-4 pt-4 border-t flex justify-between items-center" style={{ borderColor: "#0A1A3814" }}>
-                    <span className="font-bold text-lg" style={{ color: "#1E56A0" }}>
-                      ${weekend ? b.price_intl_weekend : b.price_intl_weekday}
-                      {weekend && <span className="ml-1.5 text-xs line-through opacity-40 font-normal">${b.price_intl_weekday}</span>}
-                    </span>
-                  </div>
-                  <a href={b.selar_link} target="_blank" rel="noreferrer" className="mt-3 w-full py-2.5 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-2 no-underline" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
-                    Get this bundle
-                  </a>
-                </TiltCard>
-              </Reveal>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Community({ questions, loading, error, onAsk, asking, onOpenChat }) {
-  const [name, setName] = useState("");
-  const [question, setQuestion] = useState("");
-  const [posting, setPosting] = useState(false);
-  const [postErr, setPostErr] = useState("");
-
-  const submit = async () => {
-    if (!name.trim() || !question.trim()) return;
-    setPosting(true);
-    setPostErr("");
-    try {
-      await onAsk(name, question);
-      setQuestion("");
-    } catch (e) {
-      setPostErr(e.message);
-    } finally {
-      setPosting(false);
-    }
-  };
-
-  return (
-    <div style={{ background: "#F7F8FA" }}>
-      <div className="max-w-4xl mx-auto px-5 py-14">
-        <TitleBlock label="COMMUNITY" code="ASK US" />
-        <h2 className="mt-4 mb-3" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.2rem", color: "#0A1A38" }}>Have a question before you enroll?</h2>
-        <p className="mb-8 text-sm max-w-lg" style={{ color: "#0A1A3899" }}>
-          Post it here — anyone considering the academy can see the answers. Not finding what you need? Our AI support agent (bottom-right, or the button below) can help instantly.
-        </p>
-
-        <button onClick={onOpenChat} className="mb-8 inline-flex items-center gap-2 px-5 py-3 rounded-full font-medium text-sm text-white" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
-          <Bot size={16} /> Ask the AI support agent instead
-        </button>
-
-        <div className="p-5 rounded-2xl border mb-10" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
-          <div className="flex items-center gap-2 mb-3" style={{ color: "#0A1A38" }}>
-            <HelpCircle size={17} /> <span className="font-medium text-sm">Ask a new question</span>
-          </div>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="w-full mb-2 px-3 py-2 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
-          <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What do you want to know?" rows={3} className="w-full mb-2 px-3 py-2 rounded-lg border text-sm outline-none resize-none" style={{ borderColor: "#0A1A3822" }} />
-          {postErr && <p className="text-xs mb-2" style={{ color: "#c0392b" }}>{postErr}</p>}
-          <button onClick={submit} disabled={posting} className="px-5 py-2.5 rounded-lg font-medium text-white text-sm flex items-center gap-2" style={{ background: "#0A1A38" }}>
-            {posting && <Loader2 size={14} className="animate-spin" />} Post question
-          </button>
-        </div>
-
-        {error && <div className="mb-6 p-4 rounded-md text-sm" style={{ background: "#c0392b1A", color: "#c0392b" }}>Couldn't load questions: {error}</div>}
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm" style={{ color: "#0A1A38" }}><Loader2 size={16} className="animate-spin" /> Loading questions…</div>
-        ) : questions.length === 0 ? (
-          <p className="text-sm" style={{ color: "#0A1A3899" }}>No questions yet — be the first to ask.</p>
-        ) : (
-          <div className="space-y-4">
-            {questions.map((q) => (
-              <Reveal key={q.id}>
-                <div className="p-5 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-sm" style={{ color: "#0A1A38" }}>{q.name}</span>
-                    <span className="text-xs" style={{ color: "#0A1A3866" }}>asked</span>
-                  </div>
-                  <p className="text-sm mb-3" style={{ color: "#0A1A38cc" }}>{q.question}</p>
-                  {q.answer ? (
-                    <div className="pl-3 border-l-2 text-sm" style={{ borderColor: "#3DA5FF", color: "#0A1A38" }}>
-                      <span className="font-semibold" style={{ color: "#1E56A0" }}>Gsol Design Academy: </span>{q.answer}
-                    </div>
-                  ) : (
-                    <div className="text-xs italic" style={{ color: "#0A1A3866" }}>Awaiting a reply from the team.</div>
-                  )}
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-
+function Ebooks({ ebooks, loading, error }) {
   const weekend = isWeekendPromo();
   return (
     <div style={{ background: "#F7F8FA" }}>
@@ -1012,17 +735,10 @@ export default function App() {
   const [ebooks, setEbooks] = useState([]);
   const [ebooksLoading, setEbooksLoading] = useState(true);
   const [ebooksError, setEbooksError] = useState(null);
-  const [bundles, setBundles] = useState([]);
-  const [bundlesLoading, setBundlesLoading] = useState(true);
-  const [bundlesError, setBundlesError] = useState(null);
-  const [questions, setQuestions] = useState([]);
-  const [questionsLoading, setQuestionsLoading] = useState(true);
-  const [questionsError, setQuestionsError] = useState(null);
   const [enrollments, setEnrollments] = useState([]);
   const [enrollLoading, setEnrollLoading] = useState(false);
   const [checkingOut, setCheckingOut] = useState(null);
   const [activeCourse, setActiveCourse] = useState(null);
-  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     api("/rest/v1/courses", { params: { select: "*", is_published: "eq.true", order: "code.asc" } })
@@ -1037,27 +753,6 @@ export default function App() {
       .catch((e) => { setEbooks([]); setEbooksError(e.message); })
       .finally(() => setEbooksLoading(false));
   }, []);
-
-  useEffect(() => {
-    api("/rest/v1/bundles", { params: { select: "*", is_published: "eq.true", order: "pick_count.asc" } })
-      .then((data) => { setBundles(data); setBundlesError(null); })
-      .catch((e) => { setBundles([]); setBundlesError(e.message); })
-      .finally(() => setBundlesLoading(false));
-  }, []);
-
-  const loadQuestions = useCallback(() => {
-    setQuestionsLoading(true);
-    api("/rest/v1/community_questions", { params: { select: "*", order: "created_at.desc" } })
-      .then((data) => { setQuestions(data); setQuestionsError(null); })
-      .catch((e) => { setQuestions([]); setQuestionsError(e.message); })
-      .finally(() => setQuestionsLoading(false));
-  }, []);
-  useEffect(() => { loadQuestions(); }, [loadQuestions]);
-
-  const askQuestion = async (name, question) => {
-    await api("/rest/v1/community_questions", { method: "POST", body: { name, question } });
-    loadQuestions();
-  };
 
   const loadEnrollments = useCallback(async (token, uid) => {
     setEnrollLoading(true);
@@ -1106,9 +801,7 @@ export default function App() {
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onAuthed={onAuthed} />}
       {page === "home" && <Home setPage={setPage} courses={courses} loading={coursesLoading} />}
       {page === "courses" && <Courses courses={courses} loading={coursesLoading} error={coursesError} session={session} checkout={checkout} checkingOut={checkingOut} />}
-      {page === "bundles" && <Bundles bundles={bundles} loading={bundlesLoading} error={bundlesError} />}
       {page === "ebooks" && <Ebooks ebooks={ebooks} loading={ebooksLoading} error={ebooksError} />}
-      {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} />}
       {page === "dashboard" && session && <Dashboard session={session} courses={courses} enrollments={enrollments} loading={enrollLoading} openCourse={openCourse} />}
       {page === "player" && session && <Player course={activeCourse} session={session} token={session.access_token} />}
       <footer style={{ background: "#0A1A38" }} className="pt-14 pb-8">
@@ -1120,7 +813,6 @@ export default function App() {
           </div>
         </div>
       </footer>
-      <ChatWidget open={chatOpen} setOpen={setChatOpen} />
     </div>
   );
 }
