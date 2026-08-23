@@ -190,6 +190,7 @@ function ChatWidget({ open, setOpen }) {
 }
 
 
+function isWeekendPromo() {
   const day = new Date().getDay();
   return day === 0 || day === 5 || day === 6;
 }
@@ -952,6 +953,7 @@ function Community({ questions, loading, error, onAsk, asking, onOpenChat }) {
 }
 
 
+function Ebooks({ ebooks, loading, error }) {
   const weekend = isWeekendPromo();
   return (
     <div style={{ background: "#F7F8FA" }}>
