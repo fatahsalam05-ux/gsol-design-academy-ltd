@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, Suspense } from "react
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Icosahedron, Points, PointMaterial } from "@react-three/drei";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Circle, MessageSquare, PlayCircle, ChevronRight, ShieldCheck, TrendingUp, Send, Menu, X, LogOut, Loader2, Sparkles, Award, Users, Star, ArrowRight, Zap, Package, Bot, HelpCircle } from "lucide-react";
+import { CheckCircle2, Circle, MessageSquare, PlayCircle, ChevronRight, ShieldCheck, TrendingUp, Send, Menu, X, LogOut, Loader2, Sparkles, Award, Users, Star, ArrowRight, Zap, Package, Bot, HelpCircle, Bell } from "lucide-react";
 
 const SUPABASE_URL = "https://qiymevvbgpbeuyzafciu.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpeW1ldnZiZ3BiZXV5emFmY2l1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNjU3NTgsImV4cCI6MjEwMjk0MTc1OH0.ZhoUN02CGW3RenUP5nHSlDzS_gXtnnItSVtZMyQ1aWg";
@@ -195,7 +195,7 @@ function isWeekendPromo() {
   return day === 0 || day === 5 || day === 6;
 }
 
-async function api(path, { method = "GET", token, body, params } = {}) {
+async function api(path, { method = "GET", token, body, params, upsert } = {}) {
   const url = new URL(SUPABASE_URL + path);
   if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   const res = await fetch(url.toString(), {
@@ -204,7 +204,7 @@ async function api(path, { method = "GET", token, body, params } = {}) {
       apikey: ANON_KEY,
       Authorization: `Bearer ${token || ANON_KEY}`,
       "Content-Type": "application/json",
-      ...(method !== "GET" ? { Prefer: "return=representation" } : {}),
+      ...(method !== "GET" ? { Prefer: upsert ? "return=representation,resolution=merge-duplicates" : "return=representation" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -376,11 +376,28 @@ function Nav({ page, setPage, session, setAuthOpen, signOut, menuOpen, setMenuOp
   );
 }
 
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18">
+      <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.9c1.7-1.57 2.7-3.87 2.7-6.61z" />
+      <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z" />
+      <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.96H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.04l2.99-2.33z" />
+      <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.96l2.99 2.33C4.66 5.16 6.65 3.58 9 3.58z" />
+    </svg>
+  );
+}
+
+function signInWithGoogle() {
+  const redirectTo = window.location.origin + window.location.pathname;
+  window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
+}
+
 function AuthModal({ onClose, onAuthed }) {
   const [mode, setMode] = useState("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -388,9 +405,9 @@ function AuthModal({ onClose, onAuthed }) {
     setErr(""); setLoading(true);
     try {
       if (mode === "signup") {
-        const data = await authRequest("signup", { email, password, data: { full_name: fullName } });
+        const data = await authRequest("signup", { email, password, data: { full_name: fullName, phone } });
         if (data.access_token) {
-          await api("/rest/v1/profiles", { method: "POST", token: data.access_token, body: { id: data.user.id, full_name: fullName, role: "student" } }).catch(() => {});
+          await api("/rest/v1/profiles", { method: "POST", token: data.access_token, body: { id: data.user.id, full_name: fullName, phone, role: "student" } }).catch(() => {});
           onAuthed(data);
         } else {
           setErr("Check your email to confirm your account, then sign in.");
@@ -417,9 +434,22 @@ function AuthModal({ onClose, onAuthed }) {
           </h3>
           <button onClick={onClose}><X size={18} color="#0A1A3899" /></button>
         </div>
+
+        <button onClick={signInWithGoogle} className="w-full py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2.5 border relative mb-4" style={{ borderColor: "#0A1A3822", color: "#0A1A38" }}>
+          <GoogleIcon /> Continue with Google
+        </button>
+        <div className="flex items-center gap-3 mb-4 relative">
+          <div className="flex-1 h-px" style={{ background: "#0A1A3814" }} />
+          <span className="text-xs" style={{ color: "#0A1A3866" }}>or</span>
+          <div className="flex-1 h-px" style={{ background: "#0A1A3814" }} />
+        </div>
+
         <div className="space-y-3 relative">
           {mode === "signup" && (
-            <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+            <>
+              <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" type="tel" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+            </>
           )}
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
           <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
@@ -679,38 +709,221 @@ function Courses({ courses, loading, error, session, checkout, checkingOut }) {
   );
 }
 
+function StreakFlame({ streak }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span style={{ fontSize: 22 }}>🔥</span>
+      <span className="font-bold text-2xl" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{streak}</span>
+    </div>
+  );
+}
+
+function ReminderPanel({ session }) {
+  const [settings, setSettings] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api("/rest/v1/reminder_settings", { token: session.access_token, params: { student_id: `eq.${session.user.id}`, select: "*" } })
+      .then((data) => setSettings(data[0] || { student_id: session.user.id, enabled: true, inactivity_days: 3 }))
+      .finally(() => setLoaded(true));
+  }, [session]);
+
+  const save = async (next) => {
+    setSettings(next);
+    setSaving(true);
+    try {
+      await api("/rest/v1/reminder_settings", { method: "POST", token: session.access_token, upsert: true, body: next });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!loaded || !settings) return null;
+
+  return (
+    <div className="p-5 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+      <div className="flex items-center gap-2 mb-1" style={{ color: "#0A1A38" }}>
+        <Bell size={16} /><span className="font-semibold text-sm">Learning reminders</span>
+      </div>
+      <p className="text-xs mb-3" style={{ color: "#0A1A3888" }}>Get an email nudge if you go quiet for a while.</p>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm" style={{ color: "#0A1A38" }}>Email reminders</span>
+        <button onClick={() => save({ ...settings, enabled: !settings.enabled })} className="w-11 h-6 rounded-full relative transition-colors" style={{ background: settings.enabled ? "#1E56A0" : "#0A1A3822" }}>
+          <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all" style={{ left: settings.enabled ? 22 : 2 }} />
+        </button>
+      </div>
+      {settings.enabled && (
+        <div className="flex items-center justify-between">
+          <span className="text-sm" style={{ color: "#0A1A38" }}>Remind me after</span>
+          <select value={settings.inactivity_days} onChange={(e) => save({ ...settings, inactivity_days: Number(e.target.value) })} className="px-2 py-1.5 rounded-lg border text-sm" style={{ borderColor: "#0A1A3822" }}>
+            {[1, 2, 3, 5, 7, 14, 30].map((d) => <option key={d} value={d}>{d} day{d > 1 ? "s" : ""}</option>)}
+          </select>
+        </div>
+      )}
+      {saving && <div className="text-xs mt-2 flex items-center gap-1.5" style={{ color: "#0A1A3866" }}><Loader2 size={11} className="animate-spin" /> Saving…</div>}
+    </div>
+  );
+}
+
 function Dashboard({ session, courses, enrollments, loading, openCourse }) {
+  const [lessonsByCourseCount, setLessonsByCourseCount] = useState({});
+  const [progressByCourse, setProgressByCourse] = useState({});
+  const [lastActivityByCourse, setLastActivityByCourse] = useState({});
+  const [statsLoading, setStatsLoading] = useState(true);
   const enrolledCourses = enrollments.map((e) => ({ ...courses.find((c) => c.id === e.course_id), enrollment: e })).filter((c) => c.id);
+  const activeCourses = enrolledCourses.filter((c) => c.enrollment.status === "active");
+
+  useEffect(() => {
+    if (activeCourses.length === 0) { setStatsLoading(false); return; }
+    const courseIds = activeCourses.map((c) => c.id);
+    Promise.all([
+      api("/rest/v1/lessons", { token: session.access_token, params: { course_id: `in.(${courseIds.join(",")})`, select: "id,course_id" } }),
+      api("/rest/v1/lesson_progress", { token: session.access_token, params: { student_id: `eq.${session.user.id}`, completed: "eq.true", select: "lesson_id,completed_at,lessons(course_id)" } }),
+    ]).then(([lessons, progress]) => {
+      const counts = {};
+      const lessonToCourse = {};
+      lessons.forEach((l) => { counts[l.course_id] = (counts[l.course_id] || 0) + 1; lessonToCourse[l.id] = l.course_id; });
+      setLessonsByCourseCount(counts);
+      const done = {};
+      const lastActivity = {};
+      progress.forEach((p) => {
+        const cid = p.lessons?.course_id || lessonToCourse[p.lesson_id];
+        if (!cid) return;
+        done[cid] = (done[cid] || 0) + 1;
+        if (!lastActivity[cid] || p.completed_at > lastActivity[cid]) lastActivity[cid] = p.completed_at;
+      });
+      setProgressByCourse(done);
+      setLastActivityByCourse(lastActivity);
+    }).finally(() => setStatsLoading(false));
+  }, [session, enrollments.length]);
+
+  // Streak: consecutive days (including today) with at least one completed lesson
+  const streak = (() => {
+    const dates = new Set(Object.values(lastActivityByCourse).map((d) => new Date(d).toDateString()));
+    Object.values(progressByCourse); // no-op reference to satisfy linter intent
+    let count = 0;
+    const cursor = new Date();
+    while (dates.has(cursor.toDateString()) || (count === 0 && cursor.toDateString() === new Date().toDateString())) {
+      if (!dates.has(cursor.toDateString())) break;
+      count++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return count;
+  })();
+
+  const totalLessonsDone = Object.values(progressByCourse).reduce((a, b) => a + b, 0);
+  const completedCourses = activeCourses.filter((c) => lessonsByCourseCount[c.id] > 0 && progressByCourse[c.id] === lessonsByCourseCount[c.id]);
+  const continueCourse = [...activeCourses].sort((a, b) => (lastActivityByCourse[b.id] || "").localeCompare(lastActivityByCourse[a.id] || ""))[0];
+
   return (
     <div style={{ background: "#F7F8FA", minHeight: "70vh" }}>
       <div className="max-w-6xl mx-auto px-5 py-14">
-        <TitleBlock label="STUDENT" code={(session?.user?.email || "").split("@")[0].toUpperCase()} />
+        <TitleBlock label="STUDENT" code={(session?.profile?.full_name || session?.user?.email || "").split("@")[0].toUpperCase()} />
         <h2 className="mt-4 mb-8" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.2rem", color: "#0A1A38" }}>My learning</h2>
+
         {loading ? (
           <div className="flex items-center gap-2 text-sm" style={{ color: "#0A1A38" }}><Loader2 size={16} className="animate-spin" /> Loading your enrollments…</div>
         ) : enrolledCourses.length === 0 ? (
           <p className="text-sm" style={{ color: "#0A1A3899" }}>You're not enrolled in any courses yet — head to the catalog to get started.</p>
         ) : (
-          <div className="grid md:grid-cols-2 gap-5">
-            {enrolledCourses.map((c) => (
-              <div key={c.id} className="p-6 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
-                <TitleBlock label="NO." code={c.code} />
-                <h3 className="font-semibold text-lg mt-3 mb-3" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{c.title}</h3>
-                {c.enrollment.status === "pending" ? (
-                  <div className="text-sm px-3 py-2 rounded-lg flex items-center gap-2" style={{ background: "#FF8A3D1A", color: "#FF8A3D" }}>
-                    <Loader2 size={14} className="animate-spin" /> Payment processing — updates automatically once confirmed
+          <>
+            {/* Stats row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+              <div className="p-4 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+                <div className="text-xs mb-1" style={{ color: "#0A1A3888" }}>Enrolled</div>
+                <div className="font-bold text-2xl" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{activeCourses.length}</div>
+              </div>
+              <div className="p-4 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+                <div className="text-xs mb-1" style={{ color: "#0A1A3888" }}>Completed</div>
+                <div className="font-bold text-2xl" style={{ fontFamily: "'Oswald',sans-serif", color: "#1E9E5C" }}>{completedCourses.length}</div>
+              </div>
+              <div className="p-4 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+                <div className="text-xs mb-1" style={{ color: "#0A1A3888" }}>Lessons done</div>
+                <div className="font-bold text-2xl" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{totalLessonsDone}</div>
+              </div>
+              <div className="p-4 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+                <div className="text-xs mb-1" style={{ color: "#0A1A3888" }}>Day streak</div>
+                <StreakFlame streak={streak} />
+              </div>
+            </div>
+
+            <div className="grid lg:grid-cols-[1fr_300px] gap-6 items-start">
+              <div>
+                {/* Continue learning */}
+                {continueCourse && (
+                  <div className="mb-8 p-6 rounded-2xl relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E56A0,#0A1A38)" }}>
+                    <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full" style={{ background: "radial-gradient(circle,#3DA5FF40,transparent 70%)" }} />
+                    <div className="relative">
+                      <div className="text-xs font-medium mb-2" style={{ color: "#7FC0FF" }}>CONTINUE LEARNING</div>
+                      <h3 className="font-bold text-xl mb-3" style={{ fontFamily: "'Oswald',sans-serif", color: "#fff" }}>{continueCourse.title}</h3>
+                      <div className="max-w-xs mb-4">
+                        <DimensionBar pct={lessonsByCourseCount[continueCourse.id] ? Math.round((progressByCourse[continueCourse.id] || 0) / lessonsByCourseCount[continueCourse.id] * 100) : 0} />
+                      </div>
+                      <button onClick={() => openCourse(continueCourse)} className="px-5 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2" style={{ background: "#fff", color: "#0A1A38" }}>
+                        <PlayCircle size={16} /> Resume course
+                      </button>
+                    </div>
                   </div>
-                ) : (
-                  <>
-                    <DimensionBar pct={0} />
-                    <button onClick={() => openCourse(c)} className="mt-4 w-full py-2.5 rounded-lg font-medium flex items-center justify-center gap-2 text-sm text-white" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
-                      <PlayCircle size={16} /> Continue learning
-                    </button>
-                  </>
+                )}
+
+                <h3 className="font-semibold text-lg mb-4" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>All courses</h3>
+                <div className="grid sm:grid-cols-2 gap-5">
+                  {enrolledCourses.map((c) => {
+                    const total = lessonsByCourseCount[c.id] || 0;
+                    const done = progressByCourse[c.id] || 0;
+                    const pct = total ? Math.round((done / total) * 100) : 0;
+                    return (
+                      <div key={c.id} className="p-6 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+                        <div className="flex justify-between items-start">
+                          <TitleBlock label="NO." code={c.code} />
+                          {pct === 100 && <span className="text-xs px-2 py-1 rounded-full flex items-center gap-1" style={{ background: "#1E9E5C1A", color: "#1E9E5C" }}><Award size={11} /> Certified</span>}
+                        </div>
+                        <h3 className="font-semibold text-lg mt-3 mb-3" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{c.title}</h3>
+                        {c.enrollment.status === "pending" ? (
+                          <div className="text-sm px-3 py-2 rounded-lg flex items-center gap-2" style={{ background: "#FF8A3D1A", color: "#FF8A3D" }}>
+                            <Loader2 size={14} className="animate-spin" /> Payment processing — updates automatically once confirmed
+                          </div>
+                        ) : (
+                          <>
+                            {statsLoading ? (
+                              <div className="h-1.5 rounded-full animate-pulse" style={{ background: "#0A1A380f" }} />
+                            ) : (
+                              <>
+                                <DimensionBar pct={pct} />
+                                <div className="text-xs mt-1.5" style={{ color: "#0A1A3888" }}>{done} of {total} lessons complete</div>
+                              </>
+                            )}
+                            <button onClick={() => openCourse(c)} className="mt-4 w-full py-2.5 rounded-lg font-medium flex items-center justify-center gap-2 text-sm text-white" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
+                              <PlayCircle size={16} /> {pct === 100 ? "Review course" : pct > 0 ? "Continue learning" : "Start learning"}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                <ReminderPanel session={session} />
+                {completedCourses.length > 0 && (
+                  <div className="p-5 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+                    <div className="flex items-center gap-2 mb-3" style={{ color: "#0A1A38" }}>
+                      <Award size={16} color="#1E9E5C" /><span className="font-semibold text-sm">Certificates earned</span>
+                    </div>
+                    <div className="space-y-2">
+                      {completedCourses.map((c) => (
+                        <div key={c.id} className="text-sm flex items-center gap-2" style={{ color: "#0A1A38cc" }}>
+                          <CheckCircle2 size={14} color="#1E9E5C" /> {c.title}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
-            ))}
-          </div>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -1112,6 +1325,28 @@ export default function App() {
     loadEnrollments(data.access_token, data.user.id);
     setPage("dashboard");
   };
+
+  // Google sign-in redirects back with the session in the URL hash
+  // (#access_token=...&refresh_token=...), not as a normal API response.
+  useEffect(() => {
+    if (!window.location.hash.includes("access_token")) return;
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const access_token = params.get("access_token");
+    const refresh_token = params.get("refresh_token");
+    if (!access_token) return;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { apikey: ANON_KEY, Authorization: `Bearer ${access_token}` } })
+      .then((r) => r.json())
+      .then(async (user) => {
+        // Ensure a profile row exists for first-time Google sign-ins (upsert so
+        // repeat sign-ins don't overwrite an existing role like admin/instructor).
+        await api("/rest/v1/profiles", {
+          method: "POST", token: access_token, upsert: true,
+          body: { id: user.id, full_name: user.user_metadata?.full_name || user.user_metadata?.name || "", role: "student" },
+        }).catch(() => {});
+        onAuthed({ access_token, refresh_token, user });
+      });
+  }, []);
 
   useEffect(() => {
     if (!session) return;
