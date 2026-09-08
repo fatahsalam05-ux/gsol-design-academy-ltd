@@ -152,6 +152,7 @@ function ChatWidget({ open, setOpen }) {
         whileHover={{ scale: 1.08 }}
         whileTap={{ scale: 0.95 }}
         className="fixed bottom-5 right-5 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl"
+        aria-label="Open support chat"
         style={{ background: "linear-gradient(135deg,#1E56A0,#3DA5FF)" }}
       >
         {open ? <X color="#fff" size={22} /> : <Bot color="#fff" size={24} />}
@@ -358,7 +359,7 @@ function Nav({ page, setPage, session, setAuthOpen, signOut, menuOpen, setMenuOp
             <button onClick={() => setAuthOpen(true)} className="shine-btn ml-2 px-5 py-2 text-sm rounded-full font-semibold" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)", color: "#fff" }}>Get started</button>
           )}
         </nav>
-        <button className="md:hidden text-white" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
+        <button className="md:hidden text-white" aria-label="Toggle menu" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
       </div>
       {menuOpen && (
         <div className="md:hidden flex flex-col gap-1 px-5 pb-4">
@@ -432,7 +433,7 @@ function AuthModal({ onClose, onAuthed }) {
           <h3 className="font-bold text-xl" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>
             {mode === "signin" ? "Welcome back" : "Join the academy"}
           </h3>
-          <button onClick={onClose}><X size={18} color="#0A1A3899" /></button>
+          <button onClick={onClose} aria-label="Close dialog"><X size={18} color="#0A1A3899" /></button>
         </div>
 
         <button onClick={signInWithGoogle} className="w-full py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2.5 border relative mb-4" style={{ borderColor: "#0A1A3822", color: "#0A1A38" }}>
@@ -1088,6 +1089,95 @@ function Bundles({ bundles, loading, error }) {
   );
 }
 
+/* ---------- Legal & compliance pages ---------- */
+function LegalPage({ title, updated, children }) {
+  return (
+    <div style={{ background: "#F7F8FA" }}>
+      <div className="max-w-3xl mx-auto px-5 py-14">
+        <TitleBlock label="LEGAL" code={title.toUpperCase().replace(/[^A-Z]/g, "-")} />
+        <h1 className="mt-4 mb-2" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2rem", color: "#0A1A38" }}>{title}</h1>
+        <p className="text-xs mb-8" style={{ color: "#0A1A3866" }}>Last updated: {updated}</p>
+        <div className="prose text-sm space-y-4" style={{ color: "#0A1A38cc", lineHeight: 1.7 }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PrivacyPolicy() {
+  return (
+    <LegalPage title="Privacy Policy" updated="September 2026">
+      <p><strong>Who we are.</strong> Gsol Design Academy Ltd ("we", "us") operates this website and the courses, ebooks, and community features on it.</p>
+      <p><strong>What we collect.</strong> When you create an account we collect your name, email, and phone number. When you enroll in a course we collect payment confirmation details from our payment processors (we never see or store your full card number). We automatically record which lessons you complete so we can track your progress.</p>
+      <p><strong>Why we collect it.</strong> To create and manage your account, deliver course content, process payments, respond to support questions, and — only if you opt in — send you learning reminder emails.</p>
+      <p><strong>Who we share it with.</strong> Paystack, Flutterwave, and Selar (to process payments), and our email provider (to send reminder emails you've opted into). We do not sell your data to anyone.</p>
+      <p><strong>Your choices.</strong> You can turn learning reminders on or off anytime from your dashboard. You can request a copy of your data, or ask us to delete your account, by contacting us via the Community page.</p>
+      <p><strong>Cookies.</strong> See our <a href="#" onClick={(e) => { e.preventDefault(); }} style={{ color: "#1E56A0" }}>Cookies Policy</a> for details on what we store in your browser.</p>
+    </LegalPage>
+  );
+}
+
+function TermsAndConditions() {
+  return (
+    <LegalPage title="Terms & Conditions" updated="September 2026">
+      <p><strong>Accounts.</strong> You must provide accurate information when creating an account. You're responsible for keeping your login details secure.</p>
+      <p><strong>Course access.</strong> Enrollment grants you personal, non-transferable access to the course you purchased. Course videos and materials may not be redistributed, resold, or shared outside your account.</p>
+      <p><strong>Payments.</strong> Prices are shown in the currency displayed at checkout and may vary by weekday/weekend promotion. Payment is processed by Paystack, Flutterwave, or Selar depending on your location — we do not store your card details.</p>
+      <p><strong>Conduct.</strong> The Community board and course Q&A are for genuine questions and discussion. We may remove content or restrict access for abusive, spam, or fraudulent behavior.</p>
+      <p><strong>Changes.</strong> We may update course content, pricing, or these terms from time to time; continued use of the site means you accept the current version.</p>
+    </LegalPage>
+  );
+}
+
+function CookiesPolicy() {
+  return (
+    <LegalPage title="Cookies Policy" updated="September 2026">
+      <p>We use a small number of browser storage items to make the site work:</p>
+      <ul className="list-disc pl-5 space-y-1">
+        <li><strong>Essential (always on):</strong> keeps you signed in between page loads, and remembers your cookie consent choice.</li>
+        <li><strong>Functional (optional):</strong> remembers your reminder preferences for a smoother experience.</li>
+      </ul>
+      <p>We don't use third-party advertising or cross-site tracking cookies. You can clear cookies anytime in your browser settings, though you'll need to sign in again afterward.</p>
+    </LegalPage>
+  );
+}
+
+function RefundPolicy() {
+  return (
+    <LegalPage title="Refund Policy" updated="September 2026">
+      <p>If you're not able to access a course you paid for due to a technical issue on our end, contact us via the Community page and we'll fix access or refund you in full.</p>
+      <p>Because course content is delivered digitally and immediately accessible after payment, refund requests made after you've started a course are reviewed case by case rather than guaranteed. If something about a course doesn't match its description, tell us — we'd rather make it right than keep a payment that wasn't earned.</p>
+    </LegalPage>
+  );
+}
+
+function CookieConsent() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!localStorage.getItem("cookie-consent")) setVisible(true);
+  }, []);
+  const choose = (value) => {
+    localStorage.setItem("cookie-consent", value);
+    setVisible(false);
+  };
+  if (!visible) return null;
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-50 p-4" style={{ background: "#0A1A38", boxShadow: "0 -4px 20px #0000002a" }}>
+      <div className="max-w-4xl mx-auto flex flex-wrap items-center gap-4 justify-between">
+        <p className="text-sm flex-1 min-w-[240px]" style={{ color: "#C7D2E8" }}>
+          We use essential cookies to keep you signed in, and optional ones to remember your reminder preferences. No advertising or tracking cookies.
+        </p>
+        <div className="flex gap-2">
+          <button onClick={() => choose("essential-only")} className="px-4 py-2 rounded-lg text-sm font-medium border" style={{ borderColor: "#ffffff33", color: "#fff" }}>Essential only</button>
+          <button onClick={() => choose("all")} className="px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>Accept all</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function Community({ questions, loading, error, onAsk, asking, onOpenChat, session, onAnswer }) {
   const isAdmin = session?.profile?.role === "admin" || session?.profile?.role === "instructor";
   const [answerDrafts, setAnswerDrafts] = useState({});
@@ -1386,16 +1476,27 @@ export default function App() {
       {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} session={session} onAnswer={answerQuestion} />}
       {page === "dashboard" && session && <Dashboard session={session} courses={courses} enrollments={enrollments} loading={enrollLoading} openCourse={openCourse} />}
       {page === "player" && session && <Player course={activeCourse} session={session} token={session.access_token} />}
+      {page === "privacy" && <PrivacyPolicy />}
+      {page === "terms" && <TermsAndConditions />}
+      {page === "cookies" && <CookiesPolicy />}
+      {page === "refund" && <RefundPolicy />}
       <footer style={{ background: "#0A1A38" }} className="pt-14 pb-8">
         <div className="max-w-6xl mx-auto px-5">
           <Logo />
           <p className="mt-4 text-sm max-w-xs" style={{ color: "#8CA0C4" }}>Impacting innovation through building design — construction software training for architects, engineers, and builders.</p>
-          <div className="mt-8 pt-6 border-t text-xs text-center" style={{ borderColor: "#ffffff14", color: "#8CA0C4" }}>
+          <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-xs" style={{ color: "#8CA0C4" }}>
+            <button onClick={() => setPage("privacy")} className="hover:underline">Privacy Policy</button>
+            <button onClick={() => setPage("terms")} className="hover:underline">Terms &amp; Conditions</button>
+            <button onClick={() => setPage("cookies")} className="hover:underline">Cookies Policy</button>
+            <button onClick={() => setPage("refund")} className="hover:underline">Refund Policy</button>
+          </div>
+          <div className="mt-6 pt-6 border-t text-xs text-center" style={{ borderColor: "#ffffff14", color: "#8CA0C4" }}>
             © {new Date().getFullYear()} Gsol Design Academy Ltd. All rights reserved.
           </div>
         </div>
       </footer>
       <ChatWidget open={chatOpen} setOpen={setChatOpen} />
+      <CookieConsent />
     </div>
   );
 }
