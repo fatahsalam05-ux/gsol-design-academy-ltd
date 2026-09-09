@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, Suspense } from "react
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Icosahedron, Points, PointMaterial } from "@react-three/drei";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Circle, MessageSquare, PlayCircle, ChevronRight, ShieldCheck, TrendingUp, Send, Menu, X, LogOut, Loader2, Sparkles, Award, Users, Star, ArrowRight, Zap, Package, Bot, HelpCircle, Bell } from "lucide-react";
+import { CheckCircle2, Circle, MessageSquare, PlayCircle, ChevronRight, ShieldCheck, TrendingUp, Send, Menu, X, LogOut, Loader2, Sparkles, Award, Users, Star, ArrowRight, Zap, Package, Bot, HelpCircle, Bell, Paperclip, RotateCcw } from "lucide-react";
 
 const SUPABASE_URL = "https://qiymevvbgpbeuyzafciu.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpeW1ldnZiZ3BiZXV5emFmY2l1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNjU3NTgsImV4cCI6MjEwMjk0MTc1OH0.ZhoUN02CGW3RenUP5nHSlDzS_gXtnnItSVtZMyQ1aWg";
@@ -239,6 +239,41 @@ async function startCheckout(token, courseId, provider) {
   return data;
 }
 
+// Uploads a file straight to Supabase Storage via its REST API (no supabase-js
+// client needed, consistent with the rest of this app). Returns the public
+// URL for public buckets, or the storage path for private ones (the caller
+// resolves a signed URL when displaying a private file).
+async function uploadFile(bucket, path, file, token) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${token || ANON_KEY}`,
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Upload failed: ${text}`);
+  }
+  return path;
+}
+
+function publicFileUrl(bucket, path) {
+  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+}
+
+async function signedFileUrl(bucket, path, token) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path}`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresIn: 3600 }),
+  });
+  const data = await res.json();
+  return data.signedURL ? `${SUPABASE_URL}/storage/v1${data.signedURL}` : null;
+}
+
 /* ---------- Brand mark: recreated as crisp SVG from the brochure logo ---------- */
 function Mark({ size = 40 }) {
   return (
@@ -343,7 +378,10 @@ function Nav({ page, setPage, session, setAuthOpen, signOut, menuOpen, setMenuOp
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-  const items = session ? [["home", "Home"], ["courses", "Courses"], ["bundles", "Bundles"], ["ebooks", "Ebooks"], ["community", "Community"], ["dashboard", "Dashboard"]] : [["home", "Home"], ["courses", "Courses"], ["bundles", "Bundles"], ["ebooks", "Ebooks"], ["community", "Community"]];
+  const isAdmin = session?.profile?.role === "admin" || session?.profile?.role === "instructor";
+  const items = session
+    ? [["home", "Home"], ["courses", "Courses"], ["bundles", "Bundles"], ["ebooks", "Ebooks"], ["community", "Community"], ["dashboard", "Dashboard"], ...(isAdmin ? [["admin", "Admin"]] : [])]
+    : [["home", "Home"], ["courses", "Courses"], ["bundles", "Bundles"], ["ebooks", "Ebooks"], ["community", "Community"]];
   return (
     <header className="sticky top-0 z-40 transition-all" style={{ background: scrolled ? "#0A1A38F2" : "#0A1A38", backdropFilter: "blur(10px)", borderBottom: scrolled ? "1px solid #ffffff14" : "1px solid transparent", boxShadow: scrolled ? "0 8px 30px #0A1A3840" : "none" }}>
       <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
@@ -476,13 +514,26 @@ const TESTIMONIALS = [
 function Home({ setPage, courses, loading }) {
   const weekend = isWeekendPromo();
   const [tIndex, setTIndex] = useState(0);
+  const [announcements, setAnnouncements] = useState([]);
   useEffect(() => {
     const t = setInterval(() => setTIndex((i) => (i + 1) % TESTIMONIALS.length), 4500);
     return () => clearInterval(t);
   }, []);
+  useEffect(() => {
+    api("/rest/v1/announcements", { params: { is_published: "eq.true", select: "*", order: "created_at.desc", limit: "3" } })
+      .then(setAnnouncements).catch(() => {});
+  }, []);
 
   return (
     <div style={{ background: "#F7F8FA" }}>
+      {announcements.length > 0 && (
+        <div style={{ background: "#0A1A38" }} className="py-2.5 overflow-hidden">
+          <div className="max-w-6xl mx-auto px-5 flex items-center gap-3 text-sm" style={{ color: "#7FC0FF" }}>
+            <Bell size={13} className="flex-shrink-0" />
+            <span className="truncate"><strong>{announcements[0].title}:</strong> {announcements[0].body}</span>
+          </div>
+        </div>
+      )}
       {/* HERO */}
       <section className="relative overflow-hidden" style={{ background: "linear-gradient(160deg,#0A1A38,#0F2450 55%,#14294F)" }}>
         <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
@@ -767,7 +818,106 @@ function ReminderPanel({ session }) {
   );
 }
 
+function RefundRequestModal({ course, session, onClose }) {
+  const [reason, setReason] = useState("");
+  const [files, setFiles] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    if (reason.trim().length < 5) { setErr("Tell us a bit more about the issue."); return; }
+    setSubmitting(true);
+    setErr("");
+    try {
+      const uploadedPaths = [];
+      for (const file of files) {
+        const path = `${session.user.id}/${Date.now()}-${file.name}`;
+        await uploadFile("refund-attachments", path, file, session.access_token);
+        uploadedPaths.push(path);
+      }
+      await api("/rest/v1/refund_requests", {
+        method: "POST", token: session.access_token,
+        body: { student_id: session.user.id, course_id: course.id, reason, attachment_urls: uploadedPaths },
+      });
+      setDone(true);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "#0A1A38cc", backdropFilter: "blur(4px)" }}>
+      <div className="w-full max-w-md rounded-2xl p-7 relative" style={{ background: "#fff" }}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold text-xl" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>Request a refund</h3>
+          <button onClick={onClose} aria-label="Close dialog"><X size={18} color="#0A1A3899" /></button>
+        </div>
+        {done ? (
+          <div className="py-6 text-center">
+            <CheckCircle2 size={40} color="#1E9E5C" className="mx-auto mb-3" />
+            <p className="text-sm" style={{ color: "#0A1A38" }}>Request submitted for <strong>{course.title}</strong>. We'll review it and follow up by email.</p>
+            <button onClick={onClose} className="mt-5 px-5 py-2.5 rounded-lg font-medium text-white text-sm" style={{ background: "#0A1A38" }}>Close</button>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm mb-4" style={{ color: "#0A1A3899" }}>For <strong>{course.title}</strong>. Tell us what happened — screenshots help if there's a technical issue.</p>
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What went wrong?" rows={4} className="w-full mb-3 px-3 py-2 rounded-lg border text-sm outline-none resize-none" style={{ borderColor: "#0A1A3822" }} />
+            <label className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg border cursor-pointer mb-3" style={{ borderColor: "#0A1A3822", color: "#0A1A3899" }}>
+              <Paperclip size={15} />
+              {files.length > 0 ? `${files.length} file${files.length > 1 ? "s" : ""} attached` : "Attach screenshots or files (optional)"}
+              <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
+            </label>
+            {err && <p className="text-xs mb-2" style={{ color: "#c0392b" }}>{err}</p>}
+            <button onClick={submit} disabled={submitting} className="w-full py-3 rounded-lg font-semibold text-white flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
+              {submitting && <Loader2 size={16} className="animate-spin" />} Submit request
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+function StudentFilesPanel({ session }) {
+  const [files, setFiles] = useState([]);
+  const [urls, setUrls] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api("/rest/v1/student_files", { token: session.access_token, params: { student_id: `eq.${session.user.id}`, select: "*", order: "created_at.desc" } })
+      .then(async (data) => {
+        setFiles(data);
+        const resolved = {};
+        for (const f of data) resolved[f.id] = await signedFileUrl("student-files", f.file_url, session.access_token);
+        setUrls(resolved);
+      })
+      .finally(() => setLoading(false));
+  }, [session]);
+
+  if (loading || files.length === 0) return null;
+
+  return (
+    <div className="p-5 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+      <div className="flex items-center gap-2 mb-3" style={{ color: "#0A1A38" }}>
+        <Paperclip size={16} /><span className="font-semibold text-sm">Files sent to you</span>
+      </div>
+      <div className="space-y-2">
+        {files.map((f) => (
+          <a key={f.id} href={urls[f.id] || "#"} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm no-underline" style={{ color: "#1E56A0" }}>
+            <Paperclip size={12} /> {f.title}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ session, courses, enrollments, loading, openCourse }) {
+  const [refundCourse, setRefundCourse] = useState(null);
   const [lessonsByCourseCount, setLessonsByCourseCount] = useState({});
   const [progressByCourse, setProgressByCourse] = useState({});
   const [lastActivityByCourse, setLastActivityByCourse] = useState({});
@@ -898,6 +1048,9 @@ function Dashboard({ session, courses, enrollments, loading, openCourse }) {
                             <button onClick={() => openCourse(c)} className="mt-4 w-full py-2.5 rounded-lg font-medium flex items-center justify-center gap-2 text-sm text-white" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
                               <PlayCircle size={16} /> {pct === 100 ? "Review course" : pct > 0 ? "Continue learning" : "Start learning"}
                             </button>
+                            <button onClick={() => setRefundCourse(c)} className="mt-2 w-full py-2 rounded-lg font-medium flex items-center justify-center gap-1.5 text-xs" style={{ color: "#0A1A3888" }}>
+                              <RotateCcw size={12} /> Request a refund
+                            </button>
                           </>
                         )}
                       </div>
@@ -908,6 +1061,7 @@ function Dashboard({ session, courses, enrollments, loading, openCourse }) {
 
               <div className="space-y-5">
                 <ReminderPanel session={session} />
+                <StudentFilesPanel session={session} />
                 {completedCourses.length > 0 && (
                   <div className="p-5 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
                     <div className="flex items-center gap-2 mb-3" style={{ color: "#0A1A38" }}>
@@ -927,6 +1081,7 @@ function Dashboard({ session, courses, enrollments, loading, openCourse }) {
           </>
         )}
       </div>
+      {refundCourse && <RefundRequestModal course={refundCourse} session={session} onClose={() => setRefundCourse(null)} />}
     </div>
   );
 }
@@ -1178,6 +1333,511 @@ function CookieConsent() {
 }
 
 
+function AdminOverview({ session, stats }) {
+  const cards = [
+    ["Students", stats.students, Users],
+    ["Active enrollments", stats.enrollments, Award],
+    ["Pending refunds", stats.pendingRefunds, RotateCcw],
+    ["Unanswered community Qs", stats.unansweredCommunity, HelpCircle],
+  ];
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+      {cards.map(([label, value, Icon]) => (
+        <div key={label} className="p-4 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+          <Icon size={16} color="#1E56A0" className="mb-2" />
+          <div className="font-bold text-2xl" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{value ?? "—"}</div>
+          <div className="text-xs" style={{ color: "#0A1A3888" }}>{label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AdminAnnouncements({ session }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [posting, setPosting] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api("/rest/v1/announcements", { token: session.access_token, params: { select: "*", order: "created_at.desc" } })
+      .then(setItems).finally(() => setLoading(false));
+  }, [session]);
+  useEffect(() => { load(); }, [load]);
+
+  const post = async () => {
+    if (!title.trim() || !body.trim()) return;
+    setPosting(true);
+    try {
+      await api("/rest/v1/announcements", { method: "POST", token: session.access_token, body: { title, body, created_by: session.user.id } });
+      setTitle(""); setBody(""); load();
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const toggle = async (id, is_published) => {
+    await api(`/rest/v1/announcements?id=eq.${id}`, { method: "PATCH", token: session.access_token, body: { is_published: !is_published } });
+    load();
+  };
+
+  return (
+    <div>
+      <div className="p-5 rounded-2xl border mb-6" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+        <div className="font-semibold text-sm mb-3" style={{ color: "#0A1A38" }}>Post an update</div>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="w-full mb-2 px-3 py-2 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="What's the update?" rows={3} className="w-full mb-2 px-3 py-2 rounded-lg border text-sm outline-none resize-none" style={{ borderColor: "#0A1A3822" }} />
+        <button onClick={post} disabled={posting} className="px-5 py-2.5 rounded-lg font-medium text-white text-sm flex items-center gap-2" style={{ background: "#0A1A38" }}>
+          {posting && <Loader2 size={14} className="animate-spin" />} Publish update
+        </button>
+        <p className="text-xs mt-2" style={{ color: "#0A1A3866" }}>Published updates show on the homepage for everyone, including visitors who haven't signed up.</p>
+      </div>
+      {loading ? <Loader2 size={16} className="animate-spin" /> : (
+        <div className="space-y-3">
+          {items.map((a) => (
+            <div key={a.id} className="p-4 rounded-xl border flex items-start justify-between gap-3" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+              <div>
+                <div className="font-semibold text-sm" style={{ color: "#0A1A38" }}>{a.title}</div>
+                <div className="text-sm mt-1" style={{ color: "#0A1A3899" }}>{a.body}</div>
+              </div>
+              <button onClick={() => toggle(a.id, a.is_published)} className="text-xs px-2.5 py-1 rounded-full whitespace-nowrap" style={{ background: a.is_published ? "#1E9E5C1A" : "#0A1A380D", color: a.is_published ? "#1E9E5C" : "#0A1A3888" }}>
+                {a.is_published ? "Published" : "Hidden"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminQA({ session }) {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [drafts, setDrafts] = useState({});
+  const [sending, setSending] = useState(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api("/rest/v1/qa_messages", {
+      token: session.access_token,
+      params: { select: "*,profiles(full_name,role),lessons(title,courses(title))", order: "created_at.desc", limit: "50" },
+    }).then(setMessages).finally(() => setLoading(false));
+  }, [session]);
+  useEffect(() => { load(); }, [load]);
+
+  const reply = async (lessonId, key) => {
+    if (!drafts[key]?.trim()) return;
+    setSending(key);
+    try {
+      await api("/rest/v1/qa_messages", { method: "POST", token: session.access_token, body: { lesson_id: lessonId, author_id: session.user.id, body: drafts[key] } });
+      setDrafts((d) => ({ ...d, [key]: "" }));
+      load();
+    } finally {
+      setSending(null);
+    }
+  };
+
+  return (
+    <div>
+      <p className="text-sm mb-4" style={{ color: "#0A1A3899" }}>Most recent 50 questions across every course.</p>
+      {loading ? <Loader2 size={16} className="animate-spin" /> : messages.length === 0 ? (
+        <p className="text-sm" style={{ color: "#0A1A3899" }}>No questions yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {messages.map((m) => {
+            const key = m.id;
+            return (
+              <div key={m.id} className="p-4 rounded-xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="font-semibold text-sm" style={{ color: m.profiles?.role === "student" ? "#0A1A38" : "#1E56A0" }}>{m.profiles?.full_name || "Student"}</span>
+                  <span className="text-xs" style={{ color: "#0A1A3866" }}>on {m.lessons?.courses?.title} — {m.lessons?.title}</span>
+                </div>
+                <p className="text-sm mb-2" style={{ color: "#0A1A38cc" }}>{m.body}</p>
+                <div className="flex gap-2">
+                  <input value={drafts[key] || ""} onChange={(e) => setDrafts((d) => ({ ...d, [key]: e.target.value }))} placeholder="Reply as instructor…" className="flex-1 px-3 py-2 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+                  <button onClick={() => reply(m.lesson_id, key)} disabled={sending === key} className="px-4 py-2 rounded-lg text-white text-sm flex items-center gap-1.5" style={{ background: "#1E56A0" }}>
+                    {sending === key && <Loader2 size={13} className="animate-spin" />} Reply
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminStudents({ session }) {
+  const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [uploadTarget, setUploadTarget] = useState(null);
+
+  useEffect(() => {
+    api("/rest/v1/rpc/list_students_for_staff", { method: "POST", token: session.access_token, body: {} })
+      .then(setStudents).finally(() => setLoading(false));
+  }, [session]);
+
+  const filtered = students.filter((s) =>
+    (s.full_name || "").toLowerCase().includes(search.toLowerCase()) || (s.email || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div>
+      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search students by name or email…" className="w-full mb-4 px-3 py-2 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+      {loading ? <Loader2 size={16} className="animate-spin" /> : (
+        <div className="space-y-2">
+          {filtered.map((s) => (
+            <div key={s.id} className="p-3 rounded-xl border flex items-center justify-between gap-3 flex-wrap" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+              <div>
+                <div className="font-medium text-sm" style={{ color: "#0A1A38" }}>{s.full_name || "(no name)"} <span className="text-xs font-normal capitalize" style={{ color: s.role === "student" ? "#0A1A3866" : "#1E56A0" }}>· {s.role}</span></div>
+                <div className="text-xs" style={{ color: "#0A1A3888" }}>{s.email}{s.phone ? ` · ${s.phone}` : ""}</div>
+              </div>
+              <button onClick={() => setUploadTarget(s)} className="text-xs px-3 py-1.5 rounded-full font-medium flex items-center gap-1.5" style={{ background: "#1E56A00f", color: "#1E56A0" }}>
+                <Paperclip size={12} /> Send file
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {uploadTarget && <StudentFileUploadModal student={uploadTarget} session={session} onClose={() => setUploadTarget(null)} />}
+    </div>
+  );
+}
+
+function StudentFileUploadModal({ student, session, onClose }) {
+  const [title, setTitle] = useState("");
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    if (!file || !title.trim()) { setErr("Add a title and choose a file."); return; }
+    setUploading(true);
+    setErr("");
+    try {
+      const path = `${student.id}/${Date.now()}-${file.name}`;
+      await uploadFile("student-files", path, file, session.access_token);
+      await api("/rest/v1/student_files", { method: "POST", token: session.access_token, body: { student_id: student.id, title, file_url: path, uploaded_by: session.user.id } });
+      setDone(true);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "#0A1A38cc", backdropFilter: "blur(4px)" }}>
+      <div className="w-full max-w-sm rounded-2xl p-7" style={{ background: "#fff" }}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold text-lg" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>Send file to {student.full_name}</h3>
+          <button onClick={onClose} aria-label="Close dialog"><X size={18} color="#0A1A3899" /></button>
+        </div>
+        {done ? (
+          <div className="py-4 text-center">
+            <CheckCircle2 size={36} color="#1E9E5C" className="mx-auto mb-3" />
+            <p className="text-sm" style={{ color: "#0A1A38" }}>Sent — it'll appear on their dashboard.</p>
+            <button onClick={onClose} className="mt-4 px-5 py-2.5 rounded-lg font-medium text-white text-sm" style={{ background: "#0A1A38" }}>Close</button>
+          </div>
+        ) : (
+          <>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What is this file? (e.g. 'Corrected floor plan')" className="w-full mb-3 px-3 py-2 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+            <label className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg border cursor-pointer mb-3" style={{ borderColor: "#0A1A3822", color: "#0A1A3899" }}>
+              <Paperclip size={15} /> {file ? file.name : "Choose a file"}
+              <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+            </label>
+            {err && <p className="text-xs mb-2" style={{ color: "#c0392b" }}>{err}</p>}
+            <button onClick={submit} disabled={uploading} className="w-full py-3 rounded-lg font-semibold text-white flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
+              {uploading && <Loader2 size={16} className="animate-spin" />} Send to student
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdminCourses({ session, courses }) {
+  const [selected, setSelected] = useState(null);
+  const [lessons, setLessons] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newVideo, setNewVideo] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editVideoFile, setEditVideoFile] = useState(null);
+
+  const loadLessons = useCallback((course) => {
+    setSelected(course);
+    setLoading(true);
+    api("/rest/v1/lessons", { token: session.access_token, params: { course_id: `eq.${course.id}`, order: "position.asc", select: "*" } })
+      .then(setLessons).finally(() => setLoading(false));
+  }, [session]);
+
+  const uploadVideoAndGetUrl = async (file, courseId) => {
+    const path = `${courseId}/${Date.now()}-${file.name}`;
+    await uploadFile("course-videos", path, file, session.access_token);
+    return publicFileUrl("course-videos", path);
+  };
+
+  const addLesson = async () => {
+    if (!newTitle.trim() || !selected) return;
+    setAdding(true);
+    try {
+      let video_url = null;
+      if (newVideo) video_url = await uploadVideoAndGetUrl(newVideo, selected.id);
+      await api("/rest/v1/lessons", { method: "POST", token: session.access_token, body: { course_id: selected.id, title: newTitle, position: lessons.length + 1, video_url } });
+      setNewTitle(""); setNewVideo(null);
+      loadLessons(selected);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const updateLessonVideo = async (lessonId) => {
+    if (!editVideoFile || !selected) return;
+    const url = await uploadVideoAndGetUrl(editVideoFile, selected.id);
+    await api(`/rest/v1/lessons?id=eq.${lessonId}`, { method: "PATCH", token: session.access_token, body: { video_url: url } });
+    setEditingId(null); setEditVideoFile(null);
+    loadLessons(selected);
+  };
+
+  return (
+    <div className="grid lg:grid-cols-[240px_1fr] gap-6">
+      <div className="space-y-1">
+        {courses.map((c) => (
+          <button key={c.id} onClick={() => loadLessons(c)} className="w-full text-left px-3 py-2 rounded-lg text-sm"
+            style={{ background: selected?.id === c.id ? "#1E56A014" : "transparent", color: "#0A1A38", fontWeight: selected?.id === c.id ? 600 : 400 }}>
+            {c.title}
+          </button>
+        ))}
+      </div>
+      <div>
+        {!selected ? (
+          <p className="text-sm" style={{ color: "#0A1A3899" }}>Pick a course to manage its lessons.</p>
+        ) : loading ? (
+          <Loader2 size={16} className="animate-spin" />
+        ) : (
+          <>
+            <div className="p-4 rounded-xl border mb-4" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+              <div className="font-semibold text-sm mb-2" style={{ color: "#0A1A38" }}>Add a lesson to {selected.title}</div>
+              <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Lesson title" className="w-full mb-2 px-3 py-2 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+              <label className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg border cursor-pointer mb-2" style={{ borderColor: "#0A1A3822", color: "#0A1A3899" }}>
+                <Paperclip size={15} /> {newVideo ? newVideo.name : "Attach video (optional, can add later)"}
+                <input type="file" accept="video/*" className="hidden" onChange={(e) => setNewVideo(e.target.files?.[0] || null)} />
+              </label>
+              <button onClick={addLesson} disabled={adding} className="px-4 py-2 rounded-lg text-white text-sm flex items-center gap-1.5" style={{ background: "#0A1A38" }}>
+                {adding && <Loader2 size={13} className="animate-spin" />} Add lesson
+              </button>
+            </div>
+            <div className="space-y-2">
+              {lessons.map((l) => (
+                <div key={l.id} className="p-3 rounded-xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm" style={{ color: "#0A1A38" }}>{l.position}. {l.title}</div>
+                    {l.video_url ? <CheckCircle2 size={14} color="#1E9E5C" /> : <Circle size={14} color="#0A1A3855" />}
+                  </div>
+                  {editingId === l.id ? (
+                    <div className="mt-2 flex gap-2 items-center">
+                      <input type="file" accept="video/*" onChange={(e) => setEditVideoFile(e.target.files?.[0] || null)} className="text-xs flex-1" />
+                      <button onClick={() => updateLessonVideo(l.id)} className="text-xs px-3 py-1.5 rounded-full text-white" style={{ background: "#1E56A0" }}>Save</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setEditingId(l.id)} className="text-xs mt-1" style={{ color: "#1E56A0" }}>{l.video_url ? "Replace video" : "Add video"}</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdminHub({ session, courses }) {
+  const [tab, setTab] = useState("overview");
+  const [stats, setStats] = useState({});
+
+  useEffect(() => {
+    Promise.all([
+      api("/rest/v1/rpc/list_students_for_staff", { method: "POST", token: session.access_token, body: {} }),
+      api("/rest/v1/enrollments", { token: session.access_token, params: { status: "eq.active", select: "id" } }),
+      api("/rest/v1/refund_requests", { token: session.access_token, params: { status: "eq.pending", select: "id" } }),
+      api("/rest/v1/community_questions", { token: session.access_token, params: { answer: "is.null", select: "id" } }),
+    ]).then(([students, enrollments, refunds, community]) => {
+      setStats({ students: students.length, enrollments: enrollments.length, pendingRefunds: refunds.length, unansweredCommunity: community.length });
+    }).catch(() => {});
+  }, [session]);
+
+  const tabs = [
+    ["overview", "Overview"],
+    ["announcements", "Updates"],
+    ["qa", "Course Q&A"],
+    ["students", "Students"],
+    ["courses", "Courses"],
+    ["refunds", "Refunds"],
+  ];
+
+  return (
+    <div style={{ background: "#F7F8FA", minHeight: "70vh" }}>
+      <div className="max-w-6xl mx-auto px-5 py-14">
+        <TitleBlock label="ADMIN" code="CONTROL PANEL" />
+        <h2 className="mt-4 mb-6" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.2rem", color: "#0A1A38" }}>Admin</h2>
+        {tab === "overview" && <AdminOverview session={session} stats={stats} />}
+        <div className="flex gap-1 mb-6 flex-wrap">
+          {tabs.map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)} className="px-4 py-2 rounded-lg text-sm font-medium" style={{ background: tab === id ? "#0A1A38" : "#0A1A380D", color: tab === id ? "#fff" : "#0A1A38" }}>{label}</button>
+          ))}
+        </div>
+        {tab === "announcements" && <AdminAnnouncements session={session} />}
+        {tab === "qa" && <AdminQA session={session} />}
+        {tab === "students" && <AdminStudents session={session} />}
+        {tab === "courses" && <AdminCourses session={session} courses={courses} />}
+        {tab === "refunds" && <AdminRefunds session={session} />}
+      </div>
+    </div>
+  );
+}
+
+function AdminRefunds({ session }) {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [notes, setNotes] = useState({});
+  const [saving, setSaving] = useState(null);
+  const [attachmentUrls, setAttachmentUrls] = useState({});
+  const [filter, setFilter] = useState("pending");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api("/rest/v1/refund_requests", {
+      token: session.access_token,
+      params: { select: "*,profiles(full_name),courses(title,code)", order: "created_at.desc" },
+    })
+      .then((data) => { setRequests(data); setError(null); })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [session]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Resolve signed URLs for private attachment paths on demand, per request
+  const loadAttachments = async (req) => {
+    if (attachmentUrls[req.id] || !req.attachment_urls?.length) return;
+    const urls = await Promise.all(req.attachment_urls.map((p) => signedFileUrl("refund-attachments", p, session.access_token)));
+    setAttachmentUrls((m) => ({ ...m, [req.id]: urls.filter(Boolean) }));
+  };
+
+  const updateStatus = async (id, status) => {
+    setSaving(id);
+    try {
+      await api(`/rest/v1/refund_requests?id=eq.${id}`, {
+        method: "PATCH", token: session.access_token,
+        body: { status, admin_note: notes[id] || null, resolved_by: session.user.id, resolved_at: new Date().toISOString() },
+      });
+      await load();
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const statusColor = { pending: "#FF8A3D", approved: "#3DA5FF", rejected: "#c0392b", refunded: "#1E9E5C" };
+  const filtered = filter === "all" ? requests : requests.filter((r) => r.status === filter);
+
+  return (
+    <div style={{ background: "#F7F8FA", minHeight: "70vh" }}>
+      <div className="max-w-4xl mx-auto px-5 py-14">
+        <TitleBlock label="ADMIN" code="REFUND REQUESTS" />
+        <h2 className="mt-4 mb-6" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.2rem", color: "#0A1A38" }}>Refund requests</h2>
+
+        <div className="flex gap-2 mb-6">
+          {["pending", "approved", "rejected", "refunded", "all"].map((f) => (
+            <button key={f} onClick={() => setFilter(f)} className="px-3 py-1.5 rounded-full text-xs font-medium capitalize"
+              style={{ background: filter === f ? "#0A1A38" : "#0A1A380D", color: filter === f ? "#fff" : "#0A1A38" }}>
+              {f} {f !== "all" && `(${requests.filter((r) => r.status === f).length})`}
+            </button>
+          ))}
+        </div>
+
+        {error && <div className="mb-6 p-4 rounded-md text-sm" style={{ background: "#c0392b1A", color: "#c0392b" }}>Couldn't load requests: {error}</div>}
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm" style={{ color: "#0A1A38" }}><Loader2 size={16} className="animate-spin" /> Loading requests…</div>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm" style={{ color: "#0A1A3899" }}>No {filter !== "all" ? filter : ""} refund requests.</p>
+        ) : (
+          <div className="space-y-4">
+            {filtered.map((r) => (
+              <div key={r.id} className="p-5 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+                <div className="flex justify-between items-start mb-2 flex-wrap gap-2">
+                  <div>
+                    <span className="font-semibold text-sm" style={{ color: "#0A1A38" }}>{r.profiles?.full_name || "Student"}</span>
+                    <span className="text-sm mx-1" style={{ color: "#0A1A3866" }}>—</span>
+                    <span className="text-sm" style={{ color: "#0A1A3899" }}>{r.courses?.title}</span>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded-full font-medium capitalize" style={{ background: `${statusColor[r.status]}1A`, color: statusColor[r.status] }}>{r.status}</span>
+                </div>
+                <p className="text-sm mb-3" style={{ color: "#0A1A38cc" }}>{r.reason}</p>
+
+                {r.attachment_urls?.length > 0 && (
+                  <div className="mb-3">
+                    <button onClick={() => loadAttachments(r)} className="text-xs font-medium flex items-center gap-1.5" style={{ color: "#1E56A0" }}>
+                      <Paperclip size={12} /> {attachmentUrls[r.id] ? `${r.attachment_urls.length} attachment(s)` : "View attachments"}
+                    </button>
+                    {attachmentUrls[r.id] && (
+                      <div className="flex gap-2 mt-2 flex-wrap">
+                        {attachmentUrls[r.id].map((url, i) => (
+                          <a key={i} href={url} target="_blank" rel="noreferrer">
+                            <img src={url} alt={`Attachment ${i + 1}`} className="w-20 h-20 object-cover rounded-lg border" style={{ borderColor: "#0A1A3814" }} />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {r.admin_note && (
+                  <div className="text-xs mb-3 pl-3 border-l-2" style={{ borderColor: "#0A1A3822", color: "#0A1A3888" }}>Note: {r.admin_note}</div>
+                )}
+
+                {r.status === "pending" && (
+                  <div className="mt-3 pt-3 border-t" style={{ borderColor: "#0A1A3814" }}>
+                    <input
+                      value={notes[r.id] || ""}
+                      onChange={(e) => setNotes((n) => ({ ...n, [r.id]: e.target.value }))}
+                      placeholder="Optional note (visible to you only)"
+                      className="w-full mb-2 px-3 py-2 rounded-lg border text-sm outline-none"
+                      style={{ borderColor: "#0A1A3822" }}
+                    />
+                    <div className="flex gap-2 flex-wrap">
+                      <button onClick={() => updateStatus(r.id, "approved")} disabled={saving === r.id} className="px-4 py-2 rounded-lg text-white text-xs font-medium flex items-center gap-1.5" style={{ background: "#3DA5FF" }}>
+                        {saving === r.id && <Loader2 size={12} className="animate-spin" />} Approve
+                      </button>
+                      <button onClick={() => updateStatus(r.id, "refunded")} disabled={saving === r.id} className="px-4 py-2 rounded-lg text-white text-xs font-medium" style={{ background: "#1E9E5C" }}>
+                        Mark refunded
+                      </button>
+                      <button onClick={() => updateStatus(r.id, "rejected")} disabled={saving === r.id} className="px-4 py-2 rounded-lg text-white text-xs font-medium" style={{ background: "#c0392b" }}>
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function Community({ questions, loading, error, onAsk, asking, onOpenChat, session, onAnswer }) {
   const isAdmin = session?.profile?.role === "admin" || session?.profile?.role === "instructor";
   const [answerDrafts, setAnswerDrafts] = useState({});
@@ -1198,14 +1858,22 @@ function Community({ questions, loading, error, onAsk, asking, onOpenChat, sessi
   const [question, setQuestion] = useState("");
   const [posting, setPosting] = useState(false);
   const [postErr, setPostErr] = useState("");
+  const [file, setFile] = useState(null);
 
   const submit = async () => {
     if (!name.trim() || !question.trim()) return;
     setPosting(true);
     setPostErr("");
     try {
-      await onAsk(name, question);
+      let attachmentUrl = null;
+      if (file) {
+        const path = `${Date.now()}-${file.name}`;
+        await uploadFile("community-attachments", path, file, null);
+        attachmentUrl = publicFileUrl("community-attachments", path);
+      }
+      await onAsk(name, question, attachmentUrl);
       setQuestion("");
+      setFile(null);
     } catch (e) {
       setPostErr(e.message);
     } finally {
@@ -1232,6 +1900,11 @@ function Community({ questions, loading, error, onAsk, asking, onOpenChat, sessi
           </div>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="w-full mb-2 px-3 py-2 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
           <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="What do you want to know?" rows={3} className="w-full mb-2 px-3 py-2 rounded-lg border text-sm outline-none resize-none" style={{ borderColor: "#0A1A3822" }} />
+          <label className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg border cursor-pointer mb-2" style={{ borderColor: "#0A1A3822", color: "#0A1A3899" }}>
+            <Paperclip size={15} />
+            {file ? file.name : "Attach a screenshot (optional)"}
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+          </label>
           {postErr && <p className="text-xs mb-2" style={{ color: "#c0392b" }}>{postErr}</p>}
           <button onClick={submit} disabled={posting} className="px-5 py-2.5 rounded-lg font-medium text-white text-sm flex items-center gap-2" style={{ background: "#0A1A38" }}>
             {posting && <Loader2 size={14} className="animate-spin" />} Post question
@@ -1253,6 +1926,9 @@ function Community({ questions, loading, error, onAsk, asking, onOpenChat, sessi
                     <span className="text-xs" style={{ color: "#0A1A3866" }}>asked</span>
                   </div>
                   <p className="text-sm mb-3" style={{ color: "#0A1A38cc" }}>{q.question}</p>
+                  {q.attachment_url && (
+                    <img src={q.attachment_url} alt="Attachment from question" className="mb-3 rounded-lg max-h-48 border" style={{ borderColor: "#0A1A3814" }} />
+                  )}
                   {q.answer ? (
                     <div className="pl-3 border-l-2 text-sm" style={{ borderColor: "#3DA5FF", color: "#0A1A38" }}>
                       <span className="font-semibold" style={{ color: "#1E56A0" }}>Gsol Design Academy: </span>{q.answer}
@@ -1387,8 +2063,8 @@ export default function App() {
   }, []);
   useEffect(() => { loadQuestions(); }, [loadQuestions]);
 
-  const askQuestion = async (name, question) => {
-    await api("/rest/v1/community_questions", { method: "POST", body: { name, question } });
+  const askQuestion = async (name, question, attachmentUrl) => {
+    await api("/rest/v1/community_questions", { method: "POST", body: { name, question, attachment_url: attachmentUrl || null } });
     loadQuestions();
   };
 
@@ -1474,6 +2150,7 @@ export default function App() {
       {page === "bundles" && <Bundles bundles={bundles} loading={bundlesLoading} error={bundlesError} />}
       {page === "ebooks" && <Ebooks ebooks={ebooks} loading={ebooksLoading} error={ebooksError} />}
       {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} session={session} onAnswer={answerQuestion} />}
+      {page === "admin" && session && <AdminHub session={session} courses={courses} />}
       {page === "dashboard" && session && <Dashboard session={session} courses={courses} enrollments={enrollments} loading={enrollLoading} openCourse={openCourse} />}
       {page === "player" && session && <Player course={activeCourse} session={session} token={session.access_token} />}
       {page === "privacy" && <PrivacyPolicy />}
