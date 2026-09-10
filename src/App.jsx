@@ -730,7 +730,7 @@ function Home({ setPage, courses, loading }) {
   );
 }
 
-function Courses({ courses, loading, error, session, checkout, checkingOut, selarCheckout }) {
+function Courses({ courses, loading, error, session, checkout, checkingOut, selarCheckout, onSelectCourse }) {
   const weekend = isWeekendPromo();
   return (
     <div style={{ background: "#F7F8FA" }}>
@@ -753,8 +753,11 @@ function Courses({ courses, loading, error, session, checkout, checkingOut, sela
                     <TitleBlock label="NO." code={c.code} />
                     <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: "#1E56A00f", color: "#1E56A0", fontFamily: "'JetBrains Mono',monospace" }}>{c.level}</span>
                   </div>
-                  <h3 className="font-semibold text-lg" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{c.title}</h3>
+                  <button onClick={() => onSelectCourse(c)} className="text-left">
+                    <h3 className="font-semibold text-lg hover:underline" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{c.title}</h3>
+                  </button>
                   <p className="text-sm mt-1.5 flex-1" style={{ color: "#0A1A3899" }}>{c.blurb}</p>
+                  <button onClick={() => onSelectCourse(c)} className="text-xs font-medium text-left mt-1" style={{ color: "#1E56A0" }}>View full curriculum →</button>
                   <div className="mt-4 pt-4 border-t flex justify-between items-center" style={{ borderColor: "#0A1A3814" }}>
                     <span className="font-bold text-lg" style={{ color: "#1E56A0" }}>
                       ${weekend ? c.price_intl_weekend : c.price_intl_weekday}
@@ -1230,6 +1233,79 @@ function Player({ course, session, token }) {
     </div>
   );
 }
+
+function CourseDetail({ course, session, checkout, checkingOut, selarCheckout, onBack }) {
+  const weekend = isWeekendPromo();
+  const [curriculum, setCurriculum] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!course) return;
+    api("/rest/v1/rpc/get_course_curriculum", { method: "POST", body: { course_id_param: course.id } })
+      .then(setCurriculum).catch(() => setCurriculum([])).finally(() => setLoading(false));
+  }, [course]);
+
+  if (!course) return null;
+
+  return (
+    <div style={{ background: "#F7F8FA" }}>
+      <div className="max-w-4xl mx-auto px-5 py-14">
+        <button onClick={onBack} className="text-sm font-medium mb-6 flex items-center gap-1" style={{ color: "#1E56A0" }}>
+          <ChevronRight size={14} style={{ transform: "rotate(180deg)" }} /> Back to catalog
+        </button>
+        <TitleBlock label="NO." code={course.code} />
+        <h1 className="mt-4 mb-3" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.4rem", color: "#0A1A38" }}>{course.title}</h1>
+        <span className="text-xs px-2.5 py-1 rounded-full font-medium" style={{ background: "#1E56A00f", color: "#1E56A0" }}>{course.level}</span>
+        <p className="text-base mt-4 max-w-2xl" style={{ color: "#0A1A38cc", lineHeight: 1.7 }}>{course.blurb}</p>
+
+        <div className="mt-8 p-6 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+            <span className="font-bold text-3xl" style={{ fontFamily: "'Oswald',sans-serif", color: "#1E56A0" }}>
+              ${weekend ? course.price_intl_weekend : course.price_intl_weekday}
+              {weekend && <span className="ml-2 text-base line-through opacity-40 font-normal">${course.price_intl_weekday}</span>}
+            </span>
+            {weekend && <span className="text-xs px-3 py-1.5 rounded-full font-semibold" style={{ background: "linear-gradient(90deg,#FF8A3D,#FF5F5F)", color: "#fff" }}>Weekend promo — 50% off</span>}
+          </div>
+          {session ? (
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={() => checkout(course.id, "paystack")} disabled={checkingOut === course.id} className="py-2.5 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-1.5" style={{ background: "#0A1A38" }}>
+                {checkingOut === course.id && <Loader2 size={13} className="animate-spin" />} Paystack
+              </button>
+              <button onClick={() => checkout(course.id, "flutterwave")} disabled={checkingOut === course.id} className="py-2.5 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
+                {checkingOut === course.id && <Loader2 size={13} className="animate-spin" />} Flutterwave
+              </button>
+              <button onClick={() => selarCheckout(course)} className="py-2.5 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-1.5" style={{ background: "#1E9E5C" }}>
+                Selar
+              </button>
+            </div>
+          ) : (
+            <a href={course.selar_link} target="_blank" rel="noreferrer" className="w-full py-3 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-2 no-underline" style={{ background: "#0A1A38" }}>
+              Sign in to enroll
+            </a>
+          )}
+        </div>
+
+        <h2 className="mt-10 mb-4" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "1.4rem", color: "#0A1A38" }}>Full curriculum</h2>
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm" style={{ color: "#0A1A38" }}><Loader2 size={16} className="animate-spin" /> Loading curriculum…</div>
+        ) : curriculum.length === 0 ? (
+          <p className="text-sm" style={{ color: "#0A1A3899" }}>Curriculum details coming soon.</p>
+        ) : (
+          <div className="rounded-2xl border overflow-hidden" style={{ borderColor: "#0A1A3814" }}>
+            {curriculum.map((l, i) => (
+              <div key={l.id} className="px-5 py-3 flex items-center gap-3 text-sm" style={{ background: i % 2 === 0 ? "#fff" : "#F7F8FA", color: "#0A1A38cc", borderBottom: i < curriculum.length - 1 ? "1px solid #0A1A3810" : "none" }}>
+                <PlayCircle size={14} color="#1E56A0" className="flex-shrink-0" />
+                <span>{l.position}. {l.title}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-xs mt-3" style={{ color: "#0A1A3866" }}>{curriculum.length} lessons total. Full videos unlock after enrollment.</p>
+      </div>
+    </div>
+  );
+}
+
 
 function Bundles({ bundles, loading, error }) {
   const weekend = isWeekendPromo();
@@ -2260,6 +2336,7 @@ export default function App() {
   };
 
   const openCourse = (course) => { setActiveCourse(course); setPage("player"); };
+  const viewCourseDetail = (course) => { setActiveCourse(course); setPage("course-detail"); };
 
   return (
     <div style={{ fontFamily: "'Inter',sans-serif", minHeight: "100vh" }}>
@@ -2267,7 +2344,8 @@ export default function App() {
       <Nav page={page} setPage={setPage} session={session} setAuthOpen={setAuthOpen} signOut={signOut} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onAuthed={onAuthed} />}
       {page === "home" && <Home setPage={setPage} courses={courses} loading={coursesLoading} />}
-      {page === "courses" && <Courses courses={courses} loading={coursesLoading} error={coursesError} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} />}
+      {page === "courses" && <Courses courses={courses} loading={coursesLoading} error={coursesError} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} onSelectCourse={viewCourseDetail} />}
+      {page === "course-detail" && <CourseDetail course={activeCourse} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} onBack={() => setPage("courses")} />}
       {page === "bundles" && <Bundles bundles={bundles} loading={bundlesLoading} error={bundlesError} />}
       {page === "ebooks" && <Ebooks ebooks={ebooks} loading={ebooksLoading} error={ebooksError} />}
       {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} session={session} onAnswer={answerQuestion} />}
