@@ -2104,11 +2104,14 @@ export default function App() {
     fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { apikey: ANON_KEY, Authorization: `Bearer ${access_token}` } })
       .then((r) => r.json())
       .then(async (user) => {
-        // Ensure a profile row exists for first-time Google sign-ins (upsert so
-        // repeat sign-ins don't overwrite an existing role like admin/instructor).
+        // Ensure a profile row exists (the on_auth_user_created DB trigger
+        // normally already created it with the correct role via the admin
+        // allowlist). Deliberately omit `role` here — PostgREST's upsert only
+        // touches columns present in the body, so this can never clobber an
+        // existing admin/instructor role on repeat Google sign-ins.
         await api("/rest/v1/profiles", {
           method: "POST", token: access_token, upsert: true,
-          body: { id: user.id, full_name: user.user_metadata?.full_name || user.user_metadata?.name || "", role: "student" },
+          body: { id: user.id, full_name: user.user_metadata?.full_name || user.user_metadata?.name || "" },
         }).catch(() => {});
         onAuthed({ access_token, refresh_token, user });
       });
