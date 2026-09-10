@@ -706,7 +706,7 @@ function Home({ setPage, courses, loading }) {
   );
 }
 
-function Courses({ courses, loading, error, session, checkout, checkingOut }) {
+function Courses({ courses, loading, error, session, checkout, checkingOut, selarCheckout }) {
   const weekend = isWeekendPromo();
   return (
     <div style={{ background: "#F7F8FA" }}>
@@ -738,12 +738,15 @@ function Courses({ courses, loading, error, session, checkout, checkingOut }) {
                     </span>
                   </div>
                   {session ? (
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button onClick={() => checkout(c.id, "paystack")} disabled={checkingOut === c.id} className="py-2 rounded-lg font-medium text-white text-xs flex items-center justify-center gap-1.5" style={{ background: "#0A1A38" }}>
-                        {checkingOut === c.id && <Loader2 size={12} className="animate-spin" />} Paystack
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      <button onClick={() => checkout(c.id, "paystack")} disabled={checkingOut === c.id} className="py-2 rounded-lg font-medium text-white text-xs flex items-center justify-center gap-1" style={{ background: "#0A1A38" }}>
+                        {checkingOut === c.id && <Loader2 size={11} className="animate-spin" />} Paystack
                       </button>
-                      <button onClick={() => checkout(c.id, "flutterwave")} disabled={checkingOut === c.id} className="py-2 rounded-lg font-medium text-white text-xs flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
-                        {checkingOut === c.id && <Loader2 size={12} className="animate-spin" />} Flutterwave
+                      <button onClick={() => checkout(c.id, "flutterwave")} disabled={checkingOut === c.id} className="py-2 rounded-lg font-medium text-white text-xs flex items-center justify-center gap-1" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
+                        {checkingOut === c.id && <Loader2 size={11} className="animate-spin" />} Flutter.
+                      </button>
+                      <button onClick={() => selarCheckout(c)} className="py-2 rounded-lg font-medium text-white text-xs flex items-center justify-center gap-1" style={{ background: "#1E9E5C" }}>
+                        Selar
                       </button>
                     </div>
                   ) : (
@@ -1661,6 +1664,71 @@ function AdminCourses({ session, courses }) {
   );
 }
 
+function AdminEnrollments({ session, courses }) {
+  const [enrollments, setEnrollments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("pending");
+  const [activating, setActivating] = useState(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api("/rest/v1/enrollments", {
+      token: session.access_token,
+      params: { select: "*,profiles!enrollments_student_id_fkey(full_name)", order: "enrolled_at.desc" },
+    }).then((data) => setEnrollments(data)).finally(() => setLoading(false));
+  }, [session]);
+  useEffect(() => { load(); }, [load]);
+
+  const activate = async (id) => {
+    setActivating(id);
+    try {
+      await api(`/rest/v1/enrollments?id=eq.${id}`, { method: "PATCH", token: session.access_token, body: { status: "active" } });
+      load();
+    } finally {
+      setActivating(null);
+    }
+  };
+
+  const courseTitle = (id) => courses.find((c) => c.id === id)?.title || "Unknown course";
+  const filtered = filter === "all" ? enrollments : enrollments.filter((e) => e.status === filter);
+  const sourceColor = { selar: "#1E9E5C", paystack: "#0A1A38", flutterwave: "#3DA5FF", manual: "#0A1A3888" };
+
+  return (
+    <div>
+      <p className="text-sm mb-4" style={{ color: "#0A1A3899" }}>Selar payments don't have an automatic webhook — activate them here once you've confirmed payment on Selar's dashboard.</p>
+      <div className="flex gap-2 mb-6">
+        {["pending", "active", "revoked", "all"].map((f) => (
+          <button key={f} onClick={() => setFilter(f)} className="px-3 py-1.5 rounded-full text-xs font-medium capitalize"
+            style={{ background: filter === f ? "#0A1A38" : "#0A1A380D", color: filter === f ? "#fff" : "#0A1A38" }}>
+            {f} {f !== "all" && `(${enrollments.filter((e) => e.status === f).length})`}
+          </button>
+        ))}
+      </div>
+      {loading ? <Loader2 size={16} className="animate-spin" /> : filtered.length === 0 ? (
+        <p className="text-sm" style={{ color: "#0A1A3899" }}>No {filter !== "all" ? filter : ""} enrollments.</p>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((e) => (
+            <div key={e.id} className="p-4 rounded-xl border flex items-center justify-between gap-3 flex-wrap" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+              <div>
+                <div className="font-medium text-sm" style={{ color: "#0A1A38" }}>{e.profiles?.full_name || "Student"} — {courseTitle(e.course_id)}</div>
+                <div className="text-xs mt-0.5" style={{ color: sourceColor[e.payment_source] || "#0A1A3888" }}>{e.payment_source} · {new Date(e.enrolled_at).toLocaleDateString()}</div>
+              </div>
+              {e.status === "pending" ? (
+                <button onClick={() => activate(e.id)} disabled={activating === e.id} className="px-4 py-2 rounded-lg text-white text-xs font-medium flex items-center gap-1.5" style={{ background: "#1E9E5C" }}>
+                  {activating === e.id && <Loader2 size={12} className="animate-spin" />} Activate
+                </button>
+              ) : (
+                <span className="text-xs px-2.5 py-1 rounded-full font-medium capitalize" style={{ background: e.status === "active" ? "#1E9E5C1A" : "#c0392b1A", color: e.status === "active" ? "#1E9E5C" : "#c0392b" }}>{e.status}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminHub({ session, courses }) {
   const [tab, setTab] = useState("overview");
   const [stats, setStats] = useState({});
@@ -1683,6 +1751,7 @@ function AdminHub({ session, courses }) {
     ["students", "Students"],
     ["courses", "Courses"],
     ["refunds", "Refunds"],
+    ["enrollments", "Enrollments"],
   ];
 
   return (
@@ -1701,6 +1770,7 @@ function AdminHub({ session, courses }) {
         {tab === "students" && <AdminStudents session={session} />}
         {tab === "courses" && <AdminCourses session={session} courses={courses} />}
         {tab === "refunds" && <AdminRefunds session={session} />}
+        {tab === "enrollments" && <AdminEnrollments session={session} courses={courses} />}
       </div>
     </div>
   );
@@ -1719,7 +1789,7 @@ function AdminRefunds({ session }) {
     setLoading(true);
     api("/rest/v1/refund_requests", {
       token: session.access_token,
-      params: { select: "*,profiles(full_name),courses(title,code)", order: "created_at.desc" },
+      params: { select: "*,profiles!refund_requests_student_id_fkey(full_name),courses(title,code)", order: "created_at.desc" },
     })
       .then((data) => { setRequests(data); setError(null); })
       .catch((e) => setError(e.message))
@@ -2141,6 +2211,18 @@ export default function App() {
     }
   };
 
+  // Selar has no webhook wired in yet, so this just records intent (a
+  // pending enrollment, visible to admin) and sends the student to Selar's
+  // own hosted checkout. Admin activates access manually once payment is
+  // confirmed on Selar's side, the same way it worked before this site existed.
+  const selarCheckout = async (course) => {
+    try {
+      await api("/rest/v1/enrollments", { method: "POST", token: session.access_token, body: { student_id: session.user.id, course_id: course.id, payment_source: "selar", status: "pending" } }).catch(() => {});
+    } finally {
+      window.open(course.selar_link, "_blank", "noopener,noreferrer");
+    }
+  };
+
   const openCourse = (course) => { setActiveCourse(course); setPage("player"); };
 
   return (
@@ -2149,7 +2231,7 @@ export default function App() {
       <Nav page={page} setPage={setPage} session={session} setAuthOpen={setAuthOpen} signOut={signOut} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onAuthed={onAuthed} />}
       {page === "home" && <Home setPage={setPage} courses={courses} loading={coursesLoading} />}
-      {page === "courses" && <Courses courses={courses} loading={coursesLoading} error={coursesError} session={session} checkout={checkout} checkingOut={checkingOut} />}
+      {page === "courses" && <Courses courses={courses} loading={coursesLoading} error={coursesError} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} />}
       {page === "bundles" && <Bundles bundles={bundles} loading={bundlesLoading} error={bundlesError} />}
       {page === "ebooks" && <Ebooks ebooks={ebooks} loading={ebooksLoading} error={ebooksError} />}
       {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} session={session} onAnswer={answerQuestion} />}
