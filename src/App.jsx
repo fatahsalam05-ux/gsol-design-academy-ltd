@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, Suspense } from "react
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Icosahedron, Points, PointMaterial } from "@react-three/drei";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Circle, MessageSquare, PlayCircle, ChevronRight, ShieldCheck, TrendingUp, Send, Menu, X, LogOut, Loader2, Sparkles, Award, Users, Star, ArrowRight, Zap, Package, Bot, HelpCircle, Bell, Paperclip, RotateCcw } from "lucide-react";
+import { CheckCircle2, Circle, MessageSquare, PlayCircle, ChevronRight, ShieldCheck, TrendingUp, Send, Menu, X, LogOut, Loader2, Sparkles, Award, Users, Star, ArrowRight, Zap, Package, Bot, HelpCircle, Bell, Paperclip, RotateCcw, Eye } from "lucide-react";
 
 const SUPABASE_URL = "https://qiymevvbgpbeuyzafciu.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpeW1ldnZiZ3BiZXV5emFmY2l1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNjU3NTgsImV4cCI6MjEwMjk0MTc1OH0.ZhoUN02CGW3RenUP5nHSlDzS_gXtnnItSVtZMyQ1aWg";
@@ -355,6 +355,30 @@ function TitleBlock({ code, label }) {
       <span className="opacity-60">{label}</span>
       <span className="font-medium">{code}</span>
     </div>
+  );
+}
+
+// Renders whatever's in a lesson's video_url as an inline player instead of
+// a link that leaves the site. Google Drive links use Drive's own embeddable
+// preview (works without any file migration); direct video files (e.g.
+// admin-uploaded to Supabase Storage) use a native HTML5 player.
+function LessonVideo({ url }) {
+  if (!url) return <PlayCircle size={56} color="#3DA5FF55" />;
+  const driveMatch = url.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  if (driveMatch) {
+    return (
+      <iframe
+        src={`https://drive.google.com/file/d/${driveMatch[1]}/preview`}
+        className="w-full h-full rounded-xl"
+        allow="autoplay"
+        title="Lesson video"
+      />
+    );
+  }
+  return (
+    <video controls className="w-full h-full rounded-xl" src={url}>
+      Your browser doesn't support inline video — <a href={url} style={{ color: "#3DA5FF" }}>open it directly</a>.
+    </video>
   );
 }
 
@@ -1117,6 +1141,10 @@ function Player({ course, session, token }) {
     if (!activeLesson) return;
     api("/rest/v1/qa_messages", { token, params: { lesson_id: `eq.${activeLesson.id}`, order: "created_at.asc", select: "*,profiles(full_name,role)" } })
       .then(setMessages).catch(() => setMessages([]));
+    // Log the view regardless of video source (Drive iframes give us no
+    // playback events, so "opened this lesson" is the honest signal we can
+    // capture — see markComplete for the one real completion signal).
+    api("/rest/v1/lesson_views", { method: "POST", token, body: { student_id: session.user.id, lesson_id: activeLesson.id } }).catch(() => {});
   }, [activeLesson, token]);
 
   const markComplete = async () => {
@@ -1166,12 +1194,8 @@ function Player({ course, session, token }) {
           </div>
           {tab === "lessons" && activeLesson ? (
             <div className="rounded-2xl border p-6" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
-              <div className="aspect-video rounded-xl flex items-center justify-center mb-4" style={{ background: "#0A1A38" }}>
-                {activeLesson.video_url ? (
-                  <a href={activeLesson.video_url} target="_blank" rel="noreferrer" className="flex flex-col items-center gap-2" style={{ color: "#3DA5FF" }}>
-                    <PlayCircle size={56} /><span className="text-xs">Open video</span>
-                  </a>
-                ) : <PlayCircle size={56} color="#3DA5FF55" />}
+              <div className="aspect-video rounded-xl overflow-hidden mb-4 flex items-center justify-center" style={{ background: "#0A1A38" }}>
+                <LessonVideo url={activeLesson.video_url} />
               </div>
               <h3 className="font-semibold text-lg" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{activeLesson.title}</h3>
               {activeLesson.content && <p className="text-sm mt-2" style={{ color: "#0A1A3899" }}>{activeLesson.content}</p>}
@@ -1575,12 +1599,20 @@ function AdminCourses({ session, courses }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editVideoFile, setEditVideoFile] = useState(null);
+  const [viewCounts, setViewCounts] = useState({});
 
   const loadLessons = useCallback((course) => {
     setSelected(course);
     setLoading(true);
-    api("/rest/v1/lessons", { token: session.access_token, params: { course_id: `eq.${course.id}`, order: "position.asc", select: "*" } })
-      .then(setLessons).finally(() => setLoading(false));
+    Promise.all([
+      api("/rest/v1/lessons", { token: session.access_token, params: { course_id: `eq.${course.id}`, order: "position.asc", select: "*" } }),
+      api("/rest/v1/rpc/lesson_view_counts", { method: "POST", token: session.access_token, body: { course_id_param: course.id } }).catch(() => []),
+    ]).then(([ls, views]) => {
+      setLessons(ls);
+      const map = {};
+      (views || []).forEach((v) => { map[v.lesson_id] = v; });
+      setViewCounts(map);
+    }).finally(() => setLoading(false));
   }, [session]);
 
   const uploadVideoAndGetUrl = async (file, courseId) => {
@@ -1645,6 +1677,10 @@ function AdminCourses({ session, courses }) {
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-sm" style={{ color: "#0A1A38" }}>{l.position}. {l.title}</div>
                     {l.video_url ? <CheckCircle2 size={14} color="#1E9E5C" /> : <Circle size={14} color="#0A1A3855" />}
+                  </div>
+                  <div className="text-xs mt-1 flex items-center gap-1.5" style={{ color: "#0A1A3888" }}>
+                    <Eye size={11} />
+                    {viewCounts[l.id] ? `${viewCounts[l.id].view_count} views · ${viewCounts[l.id].unique_students} students` : "No views yet"}
                   </div>
                   {editingId === l.id ? (
                     <div className="mt-2 flex gap-2 items-center">
