@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, Suspense } from "react
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Icosahedron, Points, PointMaterial } from "@react-three/drei";
 import { motion, AnimatePresence } from "framer-motion";
+import { jsPDF } from "jspdf";
 import { CheckCircle2, Circle, MessageSquare, PlayCircle, ChevronRight, ShieldCheck, TrendingUp, Send, Menu, X, LogOut, Loader2, Sparkles, Award, Users, Star, ArrowRight, Zap, Package, Bot, HelpCircle, Bell, Paperclip, RotateCcw, Eye } from "lucide-react";
 
 const SUPABASE_URL = "https://qiymevvbgpbeuyzafciu.supabase.co";
@@ -191,8 +192,13 @@ function ChatWidget({ open, setOpen }) {
 }
 
 
+// Pinned to West Africa Time (UTC+1, no DST) so every visitor sees the same
+// weekend-promo window regardless of their own device's timezone — and the
+// checkout-init edge function uses this exact same formula, so what's shown
+// always matches what's actually charged.
 function isWeekendPromo() {
-  const day = new Date().getDay();
+  const watDate = new Date(Date.now() + 60 * 60 * 1000);
+  const day = watDate.getUTCDay();
   return day === 0 || day === 5 || day === 6;
 }
 
@@ -225,6 +231,31 @@ async function authRequest(path, body) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error_description || data.msg || data.error || "Auth error");
+  return data;
+}
+
+// Session persistence: browser localStorage survives refreshes and closed
+// tabs (unlike React state, which resets to nothing on every reload). Tokens
+// expire after ~1hr, so refreshSession exchanges the longer-lived refresh
+// token for a fresh access token without making the student sign in again.
+const SESSION_KEY = "gsol_session";
+function saveSessionToStorage(session) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch {}
+}
+function loadSessionFromStorage() {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch { return null; }
+}
+function clearSessionFromStorage() {
+  try { localStorage.removeItem(SESSION_KEY); } catch {}
+}
+async function refreshAccessToken(refresh_token) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || "Session refresh failed");
   return data;
 }
 
@@ -455,6 +486,61 @@ function signInWithGoogle() {
   window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
 }
 
+function ResetPasswordModal({ token, onDone }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    setErr("");
+    if (password.length < 6) { setErr("Password must be at least 6 characters."); return; }
+    if (password !== confirm) { setErr("Passwords don't match."); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        method: "PUT",
+        headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.msg || data.error_description || "Couldn't update password");
+      setDone(true);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "#0A1A38cc", backdropFilter: "blur(4px)" }}>
+      <div className="w-full max-w-sm rounded-2xl p-7" style={{ background: "#fff" }}>
+        <h3 className="font-bold text-xl mb-5" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>Set a new password</h3>
+        {done ? (
+          <div className="text-center py-2">
+            <CheckCircle2 size={36} color="#1E9E5C" className="mx-auto mb-3" />
+            <p className="text-sm mb-5" style={{ color: "#0A1A38" }}>Password updated — sign in with your new password.</p>
+            <button onClick={onDone} className="px-5 py-2.5 rounded-lg font-medium text-white text-sm" style={{ background: "#0A1A38" }}>Continue</button>
+          </div>
+        ) : (
+          <>
+            <label htmlFor="new-password" className="sr-only">New password</label>
+            <input id="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="New password" type="password" className="w-full mb-3 px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+            <label htmlFor="confirm-password" className="sr-only">Confirm new password</label>
+            <input id="confirm-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm new password" type="password" className="w-full mb-3 px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+            {err && <p className="text-xs mb-2" style={{ color: "#c0392b" }}>{err}</p>}
+            <button onClick={submit} disabled={loading} className="w-full py-3 rounded-lg font-semibold text-white flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
+              {loading && <Loader2 size={16} className="animate-spin" />} Update password
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AuthModal({ onClose, onAuthed }) {
   const [mode, setMode] = useState("signin");
   const [email, setEmail] = useState("");
@@ -462,10 +548,11 @@ function AuthModal({ onClose, onAuthed }) {
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
-    setErr(""); setLoading(true);
+    setErr(""); setInfo(""); setLoading(true);
     try {
       if (mode === "signup") {
         const data = await authRequest("signup", { email, password, data: { full_name: fullName, phone } });
@@ -473,9 +560,12 @@ function AuthModal({ onClose, onAuthed }) {
           await api("/rest/v1/profiles", { method: "POST", token: data.access_token, body: { id: data.user.id, full_name: fullName, phone, role: "student" } }).catch(() => {});
           onAuthed(data);
         } else {
-          setErr("Check your email to confirm your account, then sign in.");
+          setInfo("Check your email to confirm your account, then sign in.");
           setMode("signin");
         }
+      } else if (mode === "forgot") {
+        await authRequest("recover", { email, redirect_to: window.location.origin + window.location.pathname });
+        setInfo("If that email has an account, a reset link is on its way — check your inbox.");
       } else {
         const data = await authRequest("token?grant_type=password", { email, password });
         onAuthed(data);
@@ -493,56 +583,61 @@ function AuthModal({ onClose, onAuthed }) {
         <div className="absolute -top-16 -right-16 w-40 h-40 rounded-full" style={{ background: "radial-gradient(circle,#3DA5FF33,transparent 70%)" }} />
         <div className="flex justify-between items-center mb-5 relative">
           <h3 className="font-bold text-xl" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>
-            {mode === "signin" ? "Welcome back" : "Join the academy"}
+            {mode === "signin" ? "Welcome back" : mode === "signup" ? "Join the academy" : "Reset your password"}
           </h3>
           <button onClick={onClose} aria-label="Close dialog"><X size={18} color="#0A1A3899" /></button>
         </div>
 
-        <button onClick={signInWithGoogle} className="w-full py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2.5 border relative mb-4" style={{ borderColor: "#0A1A3822", color: "#0A1A38" }}>
-          <GoogleIcon /> Continue with Google
-        </button>
-        <div className="flex items-center gap-3 mb-4 relative">
-          <div className="flex-1 h-px" style={{ background: "#0A1A3814" }} />
-          <span className="text-xs" style={{ color: "#0A1A3866" }}>or</span>
-          <div className="flex-1 h-px" style={{ background: "#0A1A3814" }} />
-        </div>
+        {mode !== "forgot" && (
+          <>
+            <button onClick={signInWithGoogle} className="w-full py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2.5 border relative mb-4" style={{ borderColor: "#0A1A3822", color: "#0A1A38" }}>
+              <GoogleIcon /> Continue with Google
+            </button>
+            <div className="flex items-center gap-3 mb-4 relative">
+              <div className="flex-1 h-px" style={{ background: "#0A1A3814" }} />
+              <span className="text-xs" style={{ color: "#0A1A3866" }}>or</span>
+              <div className="flex-1 h-px" style={{ background: "#0A1A3814" }} />
+            </div>
+          </>
+        )}
 
         <div className="space-y-3 relative">
           {mode === "signup" && (
             <>
-              <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" type="tel" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+              <label htmlFor="auth-name" className="sr-only">Full name</label>
+              <input id="auth-name" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+              <label htmlFor="auth-phone" className="sr-only">Phone number</label>
+              <input id="auth-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" type="tel" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
             </>
           )}
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
-          <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+          <label htmlFor="auth-email" className="sr-only">Email</label>
+          <input id="auth-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+          {mode !== "forgot" && (
+            <>
+              <label htmlFor="auth-password" className="sr-only">Password</label>
+              <input id="auth-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
+            </>
+          )}
+          {mode === "signin" && (
+            <button onClick={() => { setMode("forgot"); setErr(""); setInfo(""); }} className="text-xs" style={{ color: "#1E56A0" }}>Forgot password?</button>
+          )}
           {err && <p className="text-xs" style={{ color: "#c0392b" }}>{err}</p>}
+          {info && <p className="text-xs" style={{ color: "#1E9E5C" }}>{info}</p>}
           <button onClick={submit} disabled={loading} className="shine-btn w-full py-3 rounded-lg font-semibold text-white flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
-            {loading && <Loader2 size={16} className="animate-spin" />} {mode === "signin" ? "Sign in" : "Create account"}
+            {loading && <Loader2 size={16} className="animate-spin" />} {mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Send reset link"}
           </button>
         </div>
-        <button onClick={() => setMode(mode === "signin" ? "signup" : "signin")} className="mt-4 text-sm w-full text-center relative" style={{ color: "#1E56A0" }}>
-          {mode === "signin" ? "Need an account? Sign up" : "Already have an account? Sign in"}
+        <button onClick={() => { setMode(mode === "signup" ? "signin" : mode === "forgot" ? "signin" : "signup"); setErr(""); setInfo(""); }} className="mt-4 text-sm w-full text-center relative" style={{ color: "#1E56A0" }}>
+          {mode === "signin" ? "Need an account? Sign up" : mode === "signup" ? "Already have an account? Sign in" : "Back to sign in"}
         </button>
       </div>
     </div>
   );
 }
 
-const TESTIMONIALS = [
-  { name: "Chiamaka O.", role: "AutoCAD graduate, Lagos", quote: "I went from zero drafting skill to landing my first paid project three weeks after finishing the course." },
-  { name: "Tunde A.", role: "Revit MEP graduate, Abuja", quote: "The Q&A support inside each lesson made all the difference — I never stayed stuck for long." },
-  { name: "Fatima B.", role: "Structural design graduate, Kano", quote: "Real project work, not just theory. I use the ETABS workflow from this course every week at my job now." },
-];
-
 function Home({ setPage, courses, loading }) {
   const weekend = isWeekendPromo();
-  const [tIndex, setTIndex] = useState(0);
   const [announcements, setAnnouncements] = useState([]);
-  useEffect(() => {
-    const t = setInterval(() => setTIndex((i) => (i + 1) % TESTIMONIALS.length), 4500);
-    return () => clearInterval(t);
-  }, []);
   useEffect(() => {
     api("/rest/v1/announcements", { params: { is_published: "eq.true", select: "*", order: "created_at.desc", limit: "3" } })
       .then(setAnnouncements).catch(() => {});
@@ -694,24 +789,6 @@ function Home({ setPage, courses, loading }) {
         </div>
       </section>
 
-      {/* TESTIMONIALS */}
-      <section className="max-w-4xl mx-auto px-5 py-20 text-center">
-        <Reveal>
-          <div className="text-xs font-semibold tracking-widest mb-2" style={{ color: "#1E56A0", fontFamily: "'JetBrains Mono',monospace" }}>STUDENT RESULTS</div>
-          <div className="flex justify-center gap-1 mb-6">
-            {[...Array(5)].map((_, i) => <Star key={i} size={18} fill="#FFB020" color="#FFB020" />)}
-          </div>
-          <div className="relative h-32">
-            {TESTIMONIALS.map((t, i) => (
-              <div key={i} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: i === tIndex ? 1 : 0 }}>
-                <p className="text-xl leading-relaxed" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38", fontWeight: 500 }}>"{t.quote}"</p>
-                <p className="mt-4 text-sm font-semibold" style={{ color: "#1E56A0" }}>{t.name} <span className="font-normal" style={{ color: "#0A1A3899" }}>— {t.role}</span></p>
-              </div>
-            ))}
-          </div>
-        </Reveal>
-      </section>
-
       {/* FINAL CTA */}
       <section className="max-w-6xl mx-auto px-5 pb-20">
         <Reveal>
@@ -789,6 +866,54 @@ function Courses({ courses, loading, error, session, checkout, checkingOut, sela
       </div>
     </div>
   );
+}
+
+function downloadCertificate(studentName, courseTitle) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const w = 297, h = 210;
+
+  // Border
+  doc.setDrawColor(10, 26, 56);
+  doc.setLineWidth(1.2);
+  doc.rect(10, 10, w - 20, h - 20);
+  doc.setLineWidth(0.4);
+  doc.setDrawColor(61, 165, 255);
+  doc.rect(14, 14, w - 28, h - 28);
+
+  doc.setTextColor(10, 26, 56);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("GSOL DESIGN ACADEMY", w / 2, 40, { align: "center" });
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(61, 165, 255);
+  doc.text("IMPACTING INNOVATION THROUGH BUILDING DESIGN", w / 2, 47, { align: "center" });
+
+  doc.setTextColor(10, 26, 56);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(13);
+  doc.text("This certifies that", w / 2, 80, { align: "center" });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(30);
+  doc.text(studentName || "Student", w / 2, 98, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(13);
+  doc.text("has successfully completed the course", w / 2, 114, { align: "center" });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(30, 86, 160);
+  doc.text(courseTitle, w / 2, 130, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(10, 26, 56);
+  const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  doc.text(`Issued ${dateStr}`, w / 2, 155, { align: "center" });
+
+  doc.save(`${courseTitle.replace(/\s+/g, "-")}-certificate.pdf`);
 }
 
 function StreakFlame({ streak }) {
@@ -1099,8 +1224,9 @@ function Dashboard({ session, courses, enrollments, loading, openCourse }) {
                     </div>
                     <div className="space-y-2">
                       {completedCourses.map((c) => (
-                        <div key={c.id} className="text-sm flex items-center gap-2" style={{ color: "#0A1A38cc" }}>
-                          <CheckCircle2 size={14} color="#1E9E5C" /> {c.title}
+                        <div key={c.id} className="flex items-center justify-between gap-2 text-sm" style={{ color: "#0A1A38cc" }}>
+                          <span className="flex items-center gap-2"><CheckCircle2 size={14} color="#1E9E5C" /> {c.title}</span>
+                          <button onClick={() => downloadCertificate(session?.profile?.full_name, c.title)} className="text-xs font-medium flex-shrink-0" style={{ color: "#1E56A0" }}>Download</button>
                         </div>
                       ))}
                     </div>
@@ -1335,7 +1461,7 @@ function Bundles({ bundles, loading, error }) {
                     </span>
                   </div>
                   <a href={b.selar_link} target="_blank" rel="noreferrer" className="mt-3 w-full py-2.5 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-2 no-underline" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
-                    Get this bundle
+                    Get this bundle via Selar
                   </a>
                 </TiltCard>
               </Reveal>
@@ -1407,6 +1533,34 @@ function RefundPolicy() {
       <p>If you're not able to access a course you paid for due to a technical issue on our end, contact us via the Community page and we'll fix access or refund you in full.</p>
       <p>Because course content is delivered digitally and immediately accessible after payment, refund requests made after you've started a course are reviewed case by case rather than guaranteed. If something about a course doesn't match its description, tell us — we'd rather make it right than keep a payment that wasn't earned.</p>
     </LegalPage>
+  );
+}
+
+// Lightweight toast system: a single global queue rendered at the App root,
+// with a `toast(message, type)` function components call directly instead
+// of the browser's native alert() (which blocks the page and looks jarring
+// next to the rest of the design).
+let toastQueueSetter = null;
+function toast(message, type = "error") {
+  if (toastQueueSetter) toastQueueSetter((q) => [...q, { id: Date.now() + Math.random(), message, type }]);
+}
+function ToastHost() {
+  const [items, setItems] = useState([]);
+  useEffect(() => { toastQueueSetter = setItems; return () => { toastQueueSetter = null; }; }, []);
+  useEffect(() => {
+    if (items.length === 0) return;
+    const t = setTimeout(() => setItems((q) => q.slice(1)), 4500);
+    return () => clearTimeout(t);
+  }, [items]);
+  return (
+    <div className="fixed top-5 right-5 z-[60] flex flex-col gap-2 max-w-sm">
+      {items.map((t) => (
+        <div key={t.id} className="px-4 py-3 rounded-lg text-sm shadow-lg flex items-start gap-2" style={{ background: t.type === "success" ? "#1E9E5C" : "#c0392b", color: "#fff" }}>
+          {t.type === "success" ? <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" /> : <X size={16} className="flex-shrink-0 mt-0.5" />}
+          {t.message}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -2020,7 +2174,7 @@ function AdminRefunds({ session }) {
 }
 
 
-function Community({ questions, loading, error, onAsk, asking, onOpenChat, session, onAnswer }) {
+function Community({ questions, loading, error, onAsk, asking, onOpenChat, session, onAnswer, onDelete }) {
   const isAdmin = session?.profile?.role === "admin" || session?.profile?.role === "instructor";
   const [answerDrafts, setAnswerDrafts] = useState({});
   const [answering, setAnswering] = useState(null);
@@ -2103,9 +2257,14 @@ function Community({ questions, loading, error, onAsk, asking, onOpenChat, sessi
             {questions.map((q) => (
               <Reveal key={q.id}>
                 <div className="p-5 rounded-2xl border" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-sm" style={{ color: "#0A1A38" }}>{q.name}</span>
-                    <span className="text-xs" style={{ color: "#0A1A3866" }}>asked</span>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm" style={{ color: "#0A1A38" }}>{q.name}</span>
+                      <span className="text-xs" style={{ color: "#0A1A3866" }}>asked</span>
+                    </div>
+                    {isAdmin && (
+                      <button onClick={() => onDelete(q.id)} className="text-xs" style={{ color: "#c0392b" }}>Remove</button>
+                    )}
                   </div>
                   <p className="text-sm mb-3" style={{ color: "#0A1A38cc" }}>{q.question}</p>
                   {q.attachment_url && (
@@ -2180,7 +2339,7 @@ function Ebooks({ ebooks, loading, error }) {
                     </span>
                   </div>
                   <a href={e.selar_link} target="_blank" rel="noreferrer" className="mt-3 w-full py-2.5 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-2 no-underline" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
-                    Get this ebook
+                    Get this ebook via Selar
                   </a>
                 </div>
               </Reveal>
@@ -2214,6 +2373,7 @@ export default function App() {
   const [checkingOut, setCheckingOut] = useState(null);
   const [activeCourse, setActiveCourse] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [resetToken, setResetToken] = useState(null);
 
   useEffect(() => {
     api("/rest/v1/courses", { params: { select: "*", is_published: "eq.true", order: "code.asc" } })
@@ -2259,6 +2419,12 @@ export default function App() {
     loadQuestions();
   };
 
+  const deleteQuestion = async (id) => {
+    if (!confirm("Remove this question from the community board?")) return;
+    await api(`/rest/v1/community_questions?id=eq.${id}`, { method: "DELETE", token: session.access_token });
+    loadQuestions();
+  };
+
   const loadEnrollments = useCallback(async (token, uid) => {
     setEnrollLoading(true);
     const data = await api("/rest/v1/enrollments", { token, params: { student_id: `eq.${uid}`, select: "*" } }).catch(() => []);
@@ -2268,21 +2434,67 @@ export default function App() {
 
   const onAuthed = async (data) => {
     const profile = await api("/rest/v1/profiles", { token: data.access_token, params: { id: `eq.${data.user.id}`, select: "role,full_name" } }).catch(() => []);
-    setSession({ ...data, profile: profile?.[0] });
+    const fullSession = { ...data, profile: profile?.[0] };
+    setSession(fullSession);
+    saveSessionToStorage(fullSession);
     setAuthOpen(false);
     loadEnrollments(data.access_token, data.user.id);
     setPage("dashboard");
   };
 
+  // Restore a session from localStorage on load (survives refresh/reopen),
+  // refreshing the access token first since it may have expired while the
+  // tab was closed.
+  useEffect(() => {
+    const stored = loadSessionFromStorage();
+    if (!stored?.refresh_token) return;
+    refreshAccessToken(stored.refresh_token)
+      .then(async (data) => {
+        const profile = await api("/rest/v1/profiles", { token: data.access_token, params: { id: `eq.${data.user.id}`, select: "role,full_name" } }).catch(() => []);
+        const fullSession = { access_token: data.access_token, refresh_token: data.refresh_token, user: data.user, profile: profile?.[0] };
+        setSession(fullSession);
+        saveSessionToStorage(fullSession);
+        loadEnrollments(data.access_token, data.user.id);
+      })
+      .catch(() => clearSessionFromStorage());
+  }, [loadEnrollments]);
+
+  // Keep the access token fresh for long study sessions — refresh well
+  // before the ~1hr expiry rather than waiting for API calls to start failing.
+  useEffect(() => {
+    if (!session?.refresh_token) return;
+    const interval = setInterval(() => {
+      refreshAccessToken(session.refresh_token)
+        .then((data) => {
+          setSession((s) => {
+            const next = { ...s, access_token: data.access_token, refresh_token: data.refresh_token };
+            saveSessionToStorage(next);
+            return next;
+          });
+        })
+        .catch(() => {}); // next call will naturally fail and prompt re-login if this keeps failing
+    }, 45 * 60 * 1000); // every 45 minutes
+    return () => clearInterval(interval);
+  }, [session?.refresh_token]);
+
   // Google sign-in redirects back with the session in the URL hash
-  // (#access_token=...&refresh_token=...), not as a normal API response.
+  // (#access_token=...&refresh_token=...); password-reset links use the same
+  // hash shape but include type=recovery, which needs a "set new password"
+  // screen instead of silently signing the person in.
   useEffect(() => {
     if (!window.location.hash.includes("access_token")) return;
     const params = new URLSearchParams(window.location.hash.slice(1));
     const access_token = params.get("access_token");
     const refresh_token = params.get("refresh_token");
+    const type = params.get("type");
     if (!access_token) return;
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
+
+    if (type === "recovery") {
+      setResetToken(access_token);
+      return;
+    }
+
     fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { apikey: ANON_KEY, Authorization: `Bearer ${access_token}` } })
       .then((r) => r.json())
       .then(async (user) => {
@@ -2310,7 +2522,7 @@ export default function App() {
     }
   }, [session, loadEnrollments]);
 
-  const signOut = () => { setSession(null); setEnrollments([]); setPage("home"); };
+  const signOut = () => { setSession(null); setEnrollments([]); setPage("home"); clearSessionFromStorage(); };
 
   const checkout = async (courseId, provider) => {
     setCheckingOut(courseId);
@@ -2318,7 +2530,7 @@ export default function App() {
       const { checkout_url } = await startCheckout(session.access_token, courseId, provider);
       window.location.href = checkout_url;
     } catch (e) {
-      alert("Could not start checkout: " + e.message);
+      toast("Could not start checkout: " + e.message);
       setCheckingOut(null);
     }
   };
@@ -2343,12 +2555,13 @@ export default function App() {
       <style>{GLOBAL_STYLE}</style>
       <Nav page={page} setPage={setPage} session={session} setAuthOpen={setAuthOpen} signOut={signOut} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onAuthed={onAuthed} />}
+      {resetToken && <ResetPasswordModal token={resetToken} onDone={() => { setResetToken(null); setAuthOpen(true); }} />}
       {page === "home" && <Home setPage={setPage} courses={courses} loading={coursesLoading} />}
       {page === "courses" && <Courses courses={courses} loading={coursesLoading} error={coursesError} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} onSelectCourse={viewCourseDetail} />}
       {page === "course-detail" && <CourseDetail course={activeCourse} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} onBack={() => setPage("courses")} />}
       {page === "bundles" && <Bundles bundles={bundles} loading={bundlesLoading} error={bundlesError} />}
       {page === "ebooks" && <Ebooks ebooks={ebooks} loading={ebooksLoading} error={ebooksError} />}
-      {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} session={session} onAnswer={answerQuestion} />}
+      {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} session={session} onAnswer={answerQuestion} onDelete={deleteQuestion} />}
       {page === "admin" && session && <AdminHub session={session} courses={courses} />}
       {page === "dashboard" && session && <Dashboard session={session} courses={courses} enrollments={enrollments} loading={enrollLoading} openCourse={openCourse} />}
       {page === "player" && session && <Player course={activeCourse} session={session} token={session.access_token} />}
@@ -2373,6 +2586,7 @@ export default function App() {
       </footer>
       <ChatWidget open={chatOpen} setOpen={setChatOpen} />
       <CookieConsent />
+      <ToastHost />
     </div>
   );
 }
