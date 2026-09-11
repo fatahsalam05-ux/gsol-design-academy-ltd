@@ -32,6 +32,33 @@
       "url": "https://gsoldesignacdemy.netlify.app/"
     }
     </script>
+    <!--
+      Analytics scaffolding — ready to activate, currently inert.
+      1) Google Analytics 4: get a free Measurement ID at analytics.google.com
+         (Admin → Data Streams → Web → your site). Replace G-XXXXXXXXXX below.
+      2) Meta Pixel: get a free Pixel ID at business.facebook.com/events_manager
+         (Connect Data Sources → Web → Meta Pixel). Replace YOUR_PIXEL_ID below.
+      Until real IDs are pasted in, both blocks are harmless no-ops.
+    -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-XXXXXXXXXX');
+    </script>
+    <script>
+      !function(f,b,e,v,n,t,s)
+      {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+      n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+      n.queue=[];t=b.createElement(e);t.async=!0;
+      t.src=v;s=b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t,s)}(window, document,'script',
+      'https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init', 'YOUR_PIXEL_ID');
+      fbq('track', 'PageView');
+    </script>
   </head>
   <body>
     <div id="root"></div>
