@@ -566,6 +566,9 @@ function AuthModal({ onClose, onAuthed }) {
       } else if (mode === "forgot") {
         await authRequest("recover", { email, redirect_to: window.location.origin + window.location.pathname });
         setInfo("If that email has an account, a reset link is on its way — check your inbox.");
+      } else if (mode === "magiclink") {
+        await authRequest("magiclink", { email, create_user: true, redirect_to: window.location.origin + window.location.pathname });
+        setInfo("Check your email for a sign-in link — no password needed.");
       } else {
         const data = await authRequest("token?grant_type=password", { email, password });
         onAuthed(data);
@@ -583,12 +586,12 @@ function AuthModal({ onClose, onAuthed }) {
         <div className="absolute -top-16 -right-16 w-40 h-40 rounded-full" style={{ background: "radial-gradient(circle,#3DA5FF33,transparent 70%)" }} />
         <div className="flex justify-between items-center mb-5 relative">
           <h3 className="font-bold text-xl" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>
-            {mode === "signin" ? "Welcome back" : mode === "signup" ? "Join the academy" : "Reset your password"}
+            {mode === "signin" ? "Welcome back" : mode === "signup" ? "Join the academy" : mode === "magiclink" ? "Sign in without a password" : "Reset your password"}
           </h3>
           <button onClick={onClose} aria-label="Close dialog"><X size={18} color="#0A1A3899" /></button>
         </div>
 
-        {mode !== "forgot" && (
+        {mode !== "forgot" && mode !== "magiclink" && (
           <>
             <button onClick={signInWithGoogle} className="w-full py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2.5 border relative mb-4" style={{ borderColor: "#0A1A3822", color: "#0A1A38" }}>
               <GoogleIcon /> Continue with Google
@@ -612,22 +615,25 @@ function AuthModal({ onClose, onAuthed }) {
           )}
           <label htmlFor="auth-email" className="sr-only">Email</label>
           <input id="auth-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
-          {mode !== "forgot" && (
+          {mode !== "forgot" && mode !== "magiclink" && (
             <>
               <label htmlFor="auth-password" className="sr-only">Password</label>
               <input id="auth-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: "#0A1A3822" }} />
             </>
           )}
           {mode === "signin" && (
-            <button onClick={() => { setMode("forgot"); setErr(""); setInfo(""); }} className="text-xs" style={{ color: "#1E56A0" }}>Forgot password?</button>
+            <div className="flex justify-between text-xs">
+              <button onClick={() => { setMode("magiclink"); setErr(""); setInfo(""); }} style={{ color: "#1E56A0" }}>Email me a sign-in link</button>
+              <button onClick={() => { setMode("forgot"); setErr(""); setInfo(""); }} style={{ color: "#1E56A0" }}>Forgot password?</button>
+            </div>
           )}
           {err && <p className="text-xs" style={{ color: "#c0392b" }}>{err}</p>}
           {info && <p className="text-xs" style={{ color: "#1E9E5C" }}>{info}</p>}
           <button onClick={submit} disabled={loading} className="shine-btn w-full py-3 rounded-lg font-semibold text-white flex items-center justify-center gap-2" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
-            {loading && <Loader2 size={16} className="animate-spin" />} {mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Send reset link"}
+            {loading && <Loader2 size={16} className="animate-spin" />} {mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : mode === "magiclink" ? "Send sign-in link" : "Send reset link"}
           </button>
         </div>
-        <button onClick={() => { setMode(mode === "signup" ? "signin" : mode === "forgot" ? "signin" : "signup"); setErr(""); setInfo(""); }} className="mt-4 text-sm w-full text-center relative" style={{ color: "#1E56A0" }}>
+        <button onClick={() => { setMode(mode === "signup" ? "signin" : mode === "signin" ? "signup" : "signin"); setErr(""); setInfo(""); }} className="mt-4 text-sm w-full text-center relative" style={{ color: "#1E56A0" }}>
           {mode === "signin" ? "Need an account? Sign up" : mode === "signup" ? "Already have an account? Sign in" : "Back to sign in"}
         </button>
       </div>
@@ -1433,8 +1439,71 @@ function CourseDetail({ course, session, checkout, checkingOut, selarCheckout, o
 }
 
 
-function Bundles({ bundles, loading, error }) {
+function BundleCoursePicker({ bundle, courses, session, onClose }) {
+  const [selected, setSelected] = useState([]);
+  const [checkingOut, setCheckingOut] = useState(null);
+
+  const toggle = (id) => {
+    setSelected((s) => {
+      if (s.includes(id)) return s.filter((x) => x !== id);
+      if (s.length >= bundle.pick_count) return s; // cap at pick_count
+      return [...s, id];
+    });
+  };
+
+  const checkout = async (provider) => {
+    if (selected.length !== bundle.pick_count) {
+      toast(`Pick exactly ${bundle.pick_count} courses first.`);
+      return;
+    }
+    setCheckingOut(provider);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/checkout-init`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}`, apikey: ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ bundle_id: bundle.id, course_ids: selected, provider, redirect_url: window.location.href }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Checkout failed to start");
+      window.location.href = data.checkout_url;
+    } catch (e) {
+      toast("Could not start checkout: " + e.message);
+      setCheckingOut(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "#0A1A38cc", backdropFilter: "blur(4px)" }}>
+      <div className="w-full max-w-lg rounded-2xl p-6 max-h-[85vh] overflow-y-auto" style={{ background: "#fff" }}>
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="font-bold text-lg" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{bundle.name}</h3>
+          <button onClick={onClose} aria-label="Close dialog"><X size={18} color="#0A1A3899" /></button>
+        </div>
+        <p className="text-sm mb-4" style={{ color: "#0A1A3899" }}>Pick exactly {bundle.pick_count} courses ({selected.length}/{bundle.pick_count} selected).</p>
+        <div className="space-y-2 mb-5">
+          {courses.map((c) => (
+            <label key={c.id} className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer" style={{ borderColor: selected.includes(c.id) ? "#3DA5FF" : "#0A1A3814", background: selected.includes(c.id) ? "#3DA5FF0d" : "#fff" }}>
+              <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggle(c.id)} className="w-4 h-4" />
+              <span className="text-sm" style={{ color: "#0A1A38" }}>{c.title}</span>
+            </label>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => checkout("paystack")} disabled={!!checkingOut} className="py-2.5 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-1.5" style={{ background: "#0A1A38" }}>
+            {checkingOut === "paystack" && <Loader2 size={13} className="animate-spin" />} Paystack
+          </button>
+          <button onClick={() => checkout("flutterwave")} disabled={!!checkingOut} className="py-2.5 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
+            {checkingOut === "flutterwave" && <Loader2 size={13} className="animate-spin" />} Flutterwave
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Bundles({ bundles, loading, error, session, allCourses }) {
   const weekend = isWeekendPromo();
+  const [picking, setPicking] = useState(null);
   return (
     <div style={{ background: "#F7F8FA" }}>
       <div className="max-w-6xl mx-auto px-5 py-14">
@@ -1460,14 +1529,20 @@ function Bundles({ bundles, loading, error }) {
                       {weekend && <span className="ml-1.5 text-xs line-through opacity-40 font-normal">${b.price_intl_weekday}</span>}
                     </span>
                   </div>
-                  <a href={b.selar_link} target="_blank" rel="noreferrer" className="mt-3 w-full py-2.5 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-2 no-underline" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
+                  <a href={b.selar_link} target="_blank" rel="noreferrer" className="mt-3 w-full py-2.5 rounded-lg font-medium text-white text-sm flex items-center justify-center gap-2 no-underline" style={{ background: "#1E9E5C" }}>
                     Get this bundle via Selar
                   </a>
+                  {session && (
+                    <button onClick={() => setPicking(b)} className="mt-2 w-full py-2.5 rounded-lg font-medium text-white text-sm" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)" }}>
+                      Pay with Paystack / Flutterwave
+                    </button>
+                  )}
                 </TiltCard>
               </Reveal>
             ))}
           </div>
         )}
+        {picking && <BundleCoursePicker bundle={picking} courses={allCourses} session={session} onClose={() => setPicking(null)} />}
       </div>
     </div>
   );
@@ -1544,6 +1619,24 @@ let toastQueueSetter = null;
 function toast(message, type = "error") {
   if (toastQueueSetter) toastQueueSetter((q) => [...q, { id: Date.now() + Math.random(), message, type }]);
 }
+
+// Reports uncaught errors to log-client-error so admin can actually see when
+// something breaks for a student, instead of finding out only if they
+// happen to complain. Fire-and-forget — logging failure should never itself
+// break the page.
+let currentUserIdForLogging = null;
+function reportClientError(message, stack) {
+  fetch(`${SUPABASE_URL}/functions/v1/log-client-error`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ message, stack, url: window.location.href, user_id: currentUserIdForLogging, user_agent: navigator.userAgent }),
+  }).catch(() => {});
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("error", (e) => reportClientError(e.message, e.error?.stack));
+  window.addEventListener("unhandledrejection", (e) => reportClientError(String(e.reason?.message || e.reason), e.reason?.stack));
+}
+
 function ToastHost() {
   const [items, setItems] = useState([]);
   useEffect(() => { toastQueueSetter = setItems; return () => { toastQueueSetter = null; }; }, []);
@@ -1589,6 +1682,34 @@ function CookieConsent() {
   );
 }
 
+
+function AdminErrors({ session }) {
+  const [errors, setErrors] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api("/rest/v1/client_errors", { token: session.access_token, params: { select: "*", order: "created_at.desc", limit: "50" } })
+      .then(setErrors).finally(() => setLoading(false));
+  }, [session]);
+
+  return (
+    <div>
+      <p className="text-sm mb-4" style={{ color: "#0A1A3899" }}>Most recent 50 uncaught errors reported by real visitors' browsers.</p>
+      {loading ? <Loader2 size={16} className="animate-spin" /> : errors.length === 0 ? (
+        <p className="text-sm" style={{ color: "#0A1A3899" }}>No errors logged — good sign.</p>
+      ) : (
+        <div className="space-y-2">
+          {errors.map((e) => (
+            <div key={e.id} className="p-3 rounded-xl border text-sm" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
+              <div className="font-medium" style={{ color: "#c0392b" }}>{e.message}</div>
+              <div className="text-xs mt-1" style={{ color: "#0A1A3888" }}>{e.url} · {new Date(e.created_at).toLocaleString()}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function AdminOverview({ session, stats }) {
   const cards = [
@@ -2018,6 +2139,7 @@ function AdminHub({ session, courses }) {
     ["courses", "Courses"],
     ["refunds", "Refunds"],
     ["enrollments", "Enrollments"],
+    ["errors", "Errors"],
   ];
 
   return (
@@ -2037,6 +2159,7 @@ function AdminHub({ session, courses }) {
         {tab === "courses" && <AdminCourses session={session} courses={courses} />}
         {tab === "refunds" && <AdminRefunds session={session} />}
         {tab === "enrollments" && <AdminEnrollments session={session} courses={courses} />}
+        {tab === "errors" && <AdminErrors session={session} />}
       </div>
     </div>
   );
@@ -2356,6 +2479,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [session, setSession] = useState(null);
+  useEffect(() => { currentUserIdForLogging = session?.user?.id || null; }, [session]);
   const [courses, setCourses] = useState([]);
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [coursesError, setCoursesError] = useState(null);
@@ -2406,7 +2530,13 @@ export default function App() {
   useEffect(() => { loadQuestions(); }, [loadQuestions]);
 
   const askQuestion = async (name, question, attachmentUrl) => {
-    await api("/rest/v1/community_questions", { method: "POST", body: { name, question, attachment_url: attachmentUrl || null } });
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/post-community-question`, {
+      method: "POST",
+      headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ name, question, attachment_url: attachmentUrl || null }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Couldn't post your question");
     loadQuestions();
   };
 
@@ -2559,7 +2689,7 @@ export default function App() {
       {page === "home" && <Home setPage={setPage} courses={courses} loading={coursesLoading} />}
       {page === "courses" && <Courses courses={courses} loading={coursesLoading} error={coursesError} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} onSelectCourse={viewCourseDetail} />}
       {page === "course-detail" && <CourseDetail course={activeCourse} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} onBack={() => setPage("courses")} />}
-      {page === "bundles" && <Bundles bundles={bundles} loading={bundlesLoading} error={bundlesError} />}
+      {page === "bundles" && <Bundles bundles={bundles} loading={bundlesLoading} error={bundlesError} session={session} allCourses={courses} />}
       {page === "ebooks" && <Ebooks ebooks={ebooks} loading={ebooksLoading} error={ebooksError} />}
       {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} session={session} onAnswer={answerQuestion} onDelete={deleteQuestion} />}
       {page === "admin" && session && <AdminHub session={session} courses={courses} />}
