@@ -3,7 +3,18 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { Icosahedron, Points, PointMaterial } from "@react-three/drei";
 import { motion, AnimatePresence } from "framer-motion";
 import { jsPDF } from "jspdf";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { useGSAP } from "@gsap/react";
+import Lenis from "lenis";
 import { CheckCircle2, Circle, MessageSquare, PlayCircle, ChevronRight, ShieldCheck, TrendingUp, Send, Menu, X, LogOut, Loader2, Sparkles, Award, Users, Star, ArrowRight, Zap, Package, Bot, HelpCircle, Bell, Paperclip, RotateCcw, Eye } from "lucide-react";
+
+gsap.registerPlugin(ScrollTrigger, useGSAP);
+
+// Respect prefers-reduced-motion everywhere: when true, Reveal/TextReveal
+// skip their GSAP animation entirely and render children in their final,
+// fully-visible state immediately — never leaving content stuck invisible.
+const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const SUPABASE_URL = "https://qiymevvbgpbeuyzafciu.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpeW1ldnZiZ3BiZXV5emFmY2l1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNjU3NTgsImV4cCI6MjEwMjk0MTc1OH0.ZhoUN02CGW3RenUP5nHSlDzS_gXtnnItSVtZMyQ1aWg";
@@ -35,6 +46,12 @@ ${FONT_IMPORT}
   background-size: 200% 100%;
   animation: shimmer 2.8s ease-in-out infinite;
 }
+.premium-card { transition: transform .3s ease, box-shadow .3s ease; }
+.premium-card:hover { transform: translateY(-6px); box-shadow: 0 16px 40px #0A1A3822; }
+@media (prefers-reduced-motion: reduce) {
+  .premium-card:hover { transform: none; }
+  .float, .grid-bg, .shine-btn::after { animation: none !important; }
+}
 `;
 
 /* ---------- 3D hero scene: a rotating wireframe icosahedron with a drifting
@@ -42,6 +59,22 @@ ${FONT_IMPORT}
    Kept to the hero only — a full 3D scene per section would hurt load time
    and readability on a course-catalog site, so this is the one deliberate
    "wow" moment rather than a gimmick repeated everywhere. ---------- */
+/* ---------- Smooth scrolling (Lenis), synced to GSAP's ticker so
+   ScrollTrigger's viewport math stays correct. Skipped entirely for
+   prefers-reduced-motion — native scroll behavior is the accessible default. ---------- */
+function SmoothScroll() {
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+    const lenis = new Lenis({ duration: 1.1, smoothWheel: true, syncTouch: false });
+    lenis.on("scroll", ScrollTrigger.update);
+    const tick = (time) => lenis.raf(time * 1000);
+    gsap.ticker.add(tick);
+    gsap.ticker.lagSmoothing(0);
+    return () => { gsap.ticker.remove(tick); lenis.destroy(); };
+  }, []);
+  return null;
+}
+
 function FloatingGeo() {
   const ref = useRef();
   useFrame((state, delta) => {
@@ -344,14 +377,20 @@ function Logo({ light = true }) {
 
 function Reveal({ children, delay = 0, className = "" }) {
   const ref = useRef(null);
-  const [shown, setShown] = useState(false);
-  useEffect(() => {
-    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setShown(true); }, { threshold: 0.15 });
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, []);
+  useGSAP(() => {
+    if (!ref.current) return;
+    if (prefersReducedMotion) { gsap.set(ref.current, { opacity: 1, y: 0 }); return; }
+    gsap.fromTo(
+      ref.current,
+      { opacity: 0, y: 24 },
+      {
+        opacity: 1, y: 0, duration: 0.7, ease: "power3.out", delay: delay / 1000,
+        scrollTrigger: { trigger: ref.current, start: "top 88%", once: true },
+      }
+    );
+  }, { scope: ref });
   return (
-    <div ref={ref} className={shown ? `reveal ${className}` : `opacity-0 ${className}`} style={{ animationDelay: `${delay}ms` }}>
+    <div ref={ref} className={className} style={{ opacity: prefersReducedMotion ? 1 : 0 }}>
       {children}
     </div>
   );
@@ -360,23 +399,15 @@ function Reveal({ children, delay = 0, className = "" }) {
 function Counter({ to, suffix = "", duration = 1400 }) {
   const [val, setVal] = useState(0);
   const ref = useRef(null);
-  const started = useRef(false);
-  useEffect(() => {
-    const obs = new IntersectionObserver(([e]) => {
-      if (e.isIntersecting && !started.current) {
-        started.current = true;
-        const start = performance.now();
-        const tick = (now) => {
-          const p = Math.min(1, (now - start) / duration);
-          setVal(Math.floor(p * to));
-          if (p < 1) requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      }
-    }, { threshold: 0.3 });
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, [to, duration]);
+  useGSAP(() => {
+    if (prefersReducedMotion) { setVal(to); return; }
+    const obj = { n: 0 };
+    gsap.to(obj, {
+      n: to, duration: duration / 1000, ease: "power2.out",
+      onUpdate: () => setVal(Math.floor(obj.n)),
+      scrollTrigger: { trigger: ref.current, start: "top 90%", once: true },
+    });
+  }, { scope: ref, dependencies: [to, duration] });
   return <span ref={ref}>{val.toLocaleString()}{suffix}</span>;
 }
 
@@ -428,44 +459,64 @@ function DimensionBar({ pct }) {
 
 function Nav({ page, setPage, session, setAuthOpen, signOut, menuOpen, setMenuOpen }) {
   const [scrolled, setScrolled] = useState(false);
+  const navRef = useRef(null);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  // Navbar entrance: a quick, subtle drop-in on first mount only.
+  useGSAP(() => {
+    if (prefersReducedMotion || !navRef.current) return;
+    gsap.from(navRef.current, { y: -24, opacity: 0, duration: 0.6, ease: "power3.out" });
   }, []);
   const isAdmin = session?.profile?.role === "admin" || session?.profile?.role === "instructor";
   const items = session
     ? [["home", "Home"], ["courses", "Courses"], ["bundles", "Bundles"], ["ebooks", "Ebooks"], ["community", "Community"], ["dashboard", "Dashboard"], ...(isAdmin ? [["admin", "Admin"]] : [])]
     : [["home", "Home"], ["courses", "Courses"], ["bundles", "Bundles"], ["ebooks", "Ebooks"], ["community", "Community"]];
   return (
-    <header className="sticky top-0 z-40 transition-all" style={{ background: scrolled ? "#0A1A38F2" : "#0A1A38", backdropFilter: "blur(10px)", borderBottom: scrolled ? "1px solid #ffffff14" : "1px solid transparent", boxShadow: scrolled ? "0 8px 30px #0A1A3840" : "none" }}>
-      <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
+    <header ref={navRef} className="sticky top-0 z-40 transition-all" style={{ background: scrolled ? "#0A1A38F2" : "#0A1A38", backdropFilter: "blur(10px)", borderBottom: scrolled ? "1px solid #ffffff14" : "1px solid transparent", boxShadow: scrolled ? "0 8px 30px #0A1A3840" : "none" }}>
+      <div className="max-w-6xl mx-auto px-5 flex items-center justify-between transition-all" style={{ height: scrolled ? 56 : 64 }}>
         <button onClick={() => setPage("home")}><Logo /></button>
         <nav className="hidden md:flex items-center gap-1">
           {items.map(([id, label]) => (
-            <button key={id} onClick={() => setPage(id)} className="px-4 py-2 text-sm rounded-full transition-all"
+            <button key={id} onClick={() => setPage(id)} className="px-4 py-2 text-sm rounded-full transition-all hover:opacity-90"
               style={{ color: page === id ? "#0A1A38" : "#F5F3ECcc", background: page === id ? "linear-gradient(90deg,#3DA5FF,#1E56A0)" : "transparent", backgroundColor: page === id ? "#3DA5FF" : "transparent" }}>{label}</button>
           ))}
           {session ? (
-            <button onClick={signOut} className="ml-2 px-4 py-2 text-sm rounded-full flex items-center gap-1.5" style={{ color: "#F5F3ECcc" }}><LogOut size={14} /> Sign out</button>
+            <button onClick={signOut} className="ml-2 px-4 py-2 text-sm rounded-full flex items-center gap-1.5 transition-opacity hover:opacity-80" style={{ color: "#F5F3ECcc" }}><LogOut size={14} /> Sign out</button>
           ) : (
-            <button onClick={() => setAuthOpen(true)} className="shine-btn ml-2 px-5 py-2 text-sm rounded-full font-semibold" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)", color: "#fff" }}>Get started</button>
+            <button onClick={() => setAuthOpen(true)} className="shine-btn ml-2 px-5 py-2 text-sm rounded-full font-semibold transition-transform hover:scale-[1.04] active:scale-[0.97]" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)", color: "#fff" }}>Get started</button>
           )}
         </nav>
-        <button className="md:hidden text-white" aria-label="Toggle menu" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
+        <button className="md:hidden text-white relative w-6 h-6" aria-label="Toggle menu" onClick={() => setMenuOpen(!menuOpen)}>
+          <motion.span animate={{ rotate: menuOpen ? 90 : 0, opacity: 1 }} transition={{ duration: 0.25 }} className="absolute inset-0 flex items-center justify-center">
+            {menuOpen ? <X /> : <Menu />}
+          </motion.span>
+        </button>
       </div>
-      {menuOpen && (
-        <div className="md:hidden flex flex-col gap-1 px-5 pb-4">
-          {items.map(([id, label]) => (
-            <button key={id} onClick={() => { setPage(id); setMenuOpen(false); }} className="text-left px-3 py-2 rounded-md" style={{ color: "#F5F3EC", background: page === id ? "#3DA5FF33" : "transparent" }}>{label}</button>
-          ))}
-          {session ? (
-            <button onClick={signOut} className="text-left px-3 py-2 rounded-md" style={{ color: "#F5F3EC" }}>Sign out</button>
-          ) : (
-            <button onClick={() => setAuthOpen(true)} className="text-left px-3 py-2 rounded-md font-semibold" style={{ color: "#3DA5FF" }}>Get started</button>
-          )}
-        </div>
-      )}
+      <AnimatePresence>
+        {menuOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.28, ease: "easeInOut" }}
+            className="md:hidden overflow-hidden"
+          >
+            <div className="flex flex-col gap-1 px-5 pb-4">
+              {items.map(([id, label]) => (
+                <button key={id} onClick={() => { setPage(id); setMenuOpen(false); }} className="text-left px-3 py-2 rounded-md transition-colors" style={{ color: "#F5F3EC", background: page === id ? "#3DA5FF33" : "transparent" }}>{label}</button>
+              ))}
+              {session ? (
+                <button onClick={signOut} className="text-left px-3 py-2 rounded-md" style={{ color: "#F5F3EC" }}>Sign out</button>
+              ) : (
+                <button onClick={() => setAuthOpen(true)} className="text-left px-3 py-2 rounded-md font-semibold" style={{ color: "#3DA5FF" }}>Get started</button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </header>
   );
 }
@@ -644,10 +695,23 @@ function AuthModal({ onClose, onAuthed }) {
 function Home({ setPage, courses, loading }) {
   const weekend = isWeekendPromo();
   const [announcements, setAnnouncements] = useState([]);
+  const heroRef = useRef(null);
+  const sceneWrapRef = useRef(null);
   useEffect(() => {
     api("/rest/v1/announcements", { params: { is_published: "eq.true", select: "*", order: "created_at.desc", limit: "3" } })
       .then(setAnnouncements).catch(() => {});
   }, []);
+
+  // Subtle parallax on the 3D hero scene — the graphic drifts slightly slower
+  // than the page scrolls, a classic premium-feel touch. Transform-only (no
+  // layout impact), skipped entirely for prefers-reduced-motion.
+  useGSAP(() => {
+    if (prefersReducedMotion || !sceneWrapRef.current) return;
+    gsap.to(sceneWrapRef.current, {
+      y: 90, ease: "none",
+      scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: 0.6 },
+    });
+  }, { scope: heroRef });
 
   return (
     <div style={{ background: "#F7F8FA" }}>
@@ -660,9 +724,9 @@ function Home({ setPage, courses, loading }) {
         </div>
       )}
       {/* HERO */}
-      <section className="relative overflow-hidden" style={{ background: "linear-gradient(160deg,#0A1A38,#0F2450 55%,#14294F)" }}>
+      <section ref={heroRef} className="relative overflow-hidden" style={{ background: "linear-gradient(160deg,#0A1A38,#0F2450 55%,#14294F)" }}>
         <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
-        <HeroScene />
+        <div ref={sceneWrapRef} className="absolute inset-0"><HeroScene /></div>
         <div className="absolute top-10 -right-20 w-72 h-72 rounded-full float pointer-events-none" style={{ background: "radial-gradient(circle,#3DA5FF3a,transparent 70%)" }} />
         <div className="absolute bottom-0 -left-24 w-96 h-96 rounded-full float pointer-events-none" style={{ background: "radial-gradient(circle,#1E56A030,transparent 70%)", animationDelay: "1.5s" }} />
 
@@ -693,8 +757,8 @@ function Home({ setPage, courses, loading }) {
 
           <Reveal delay={400}>
             <div className="mt-9 flex flex-wrap gap-3">
-              <button onClick={() => setPage("courses")} className="shine-btn px-7 py-3.5 rounded-full font-semibold text-white flex items-center gap-2 text-base" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)", boxShadow: "0 10px 30px #3DA5FF33" }}>
-                Explore courses <ArrowRight size={18} />
+              <button onClick={() => setPage("courses")} className="shine-btn group px-7 py-3.5 rounded-full font-semibold text-white flex items-center gap-2 text-base transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97]" style={{ background: "linear-gradient(90deg,#1E56A0,#3DA5FF)", boxShadow: "0 10px 30px #3DA5FF33" }}>
+                Explore courses <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" />
               </button>
               <button onClick={() => setPage("courses")} className="px-7 py-3.5 rounded-full font-semibold text-sm border" style={{ borderColor: "#ffffff33", color: "#fff" }}>
                 View pricing
@@ -803,8 +867,8 @@ function Home({ setPage, courses, loading }) {
             <Users size={30} color="#7FC0FF" className="mx-auto mb-4" />
             <h2 style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2rem", color: "#fff" }}>Your next skill starts this week</h2>
             <p className="mt-3 max-w-md mx-auto" style={{ color: "#C7D2E8" }}>Join thousands of architects, engineers and builders leveling up with Gsol Design Academy.</p>
-            <button onClick={() => setPage("courses")} className="shine-btn mt-7 px-8 py-3.5 rounded-full font-semibold text-white inline-flex items-center gap-2" style={{ background: "linear-gradient(90deg,#3DA5FF,#7FC0FF)", color: "#0A1A38" }}>
-              Start learning today <ArrowRight size={18} />
+            <button onClick={() => setPage("courses")} className="shine-btn group mt-7 px-8 py-3.5 rounded-full font-semibold text-white inline-flex items-center gap-2 transition-transform duration-200 hover:scale-[1.03] active:scale-[0.97]" style={{ background: "linear-gradient(90deg,#3DA5FF,#7FC0FF)", color: "#0A1A38" }}>
+              Start learning today <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-1" />
             </button>
           </div>
         </Reveal>
@@ -831,7 +895,7 @@ function Courses({ courses, loading, error, session, checkout, checkingOut, sela
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {courses.map((c, i) => (
               <Reveal key={c.id} delay={(i % 3) * 80}>
-                <div className="p-6 rounded-2xl border flex flex-col h-full transition-transform hover:-translate-y-1" style={{ borderColor: "#0A1A3814", background: "#fff", boxShadow: "0 4px 20px #0A1A380a" }}>
+                <div className="premium-card p-6 rounded-2xl border flex flex-col h-full" style={{ borderColor: "#0A1A3814", background: "#fff", boxShadow: "0 4px 20px #0A1A380a" }}>
                   <div className="flex justify-between items-start mb-3">
                     <TitleBlock label="NO." code={c.code} />
                     <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: "#1E56A00f", color: "#1E56A0", fontFamily: "'JetBrains Mono',monospace" }}>{c.level}</span>
@@ -2253,7 +2317,7 @@ function AdminRefunds({ session }) {
                       <div className="flex gap-2 mt-2 flex-wrap">
                         {attachmentUrls[r.id].map((url, i) => (
                           <a key={i} href={url} target="_blank" rel="noreferrer">
-                            <img src={url} alt={`Attachment ${i + 1}`} className="w-20 h-20 object-cover rounded-lg border" style={{ borderColor: "#0A1A3814" }} />
+                            <img src={url} alt={`Attachment ${i + 1}`} loading="lazy" className="w-20 h-20 object-cover rounded-lg border" style={{ borderColor: "#0A1A3814" }} />
                           </a>
                         ))}
                       </div>
@@ -2391,7 +2455,7 @@ function Community({ questions, loading, error, onAsk, asking, onOpenChat, sessi
                   </div>
                   <p className="text-sm mb-3" style={{ color: "#0A1A38cc" }}>{q.question}</p>
                   {q.attachment_url && (
-                    <img src={q.attachment_url} alt="Attachment from question" className="mb-3 rounded-lg max-h-48 border" style={{ borderColor: "#0A1A3814" }} />
+                    <img src={q.attachment_url} alt="Attachment from question" loading="lazy" className="mb-3 rounded-lg max-h-48 border" style={{ borderColor: "#0A1A3814" }} />
                   )}
                   {q.answer ? (
                     <div className="pl-3 border-l-2 text-sm" style={{ borderColor: "#3DA5FF", color: "#0A1A38" }}>
@@ -2443,7 +2507,7 @@ function Ebooks({ ebooks, loading, error }) {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {ebooks.map((e, i) => (
               <Reveal key={e.id} delay={(i % 3) * 80}>
-                <div className="p-6 rounded-2xl border flex flex-col h-full transition-transform hover:-translate-y-1" style={{ borderColor: "#0A1A3814", background: "#fff", boxShadow: "0 4px 20px #0A1A380a" }}>
+                <div className="premium-card p-6 rounded-2xl border flex flex-col h-full" style={{ borderColor: "#0A1A3814", background: "#fff", boxShadow: "0 4px 20px #0A1A380a" }}>
                   <h3 className="font-semibold text-lg" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{e.title}</h3>
                   <p className="text-sm mt-1.5 flex-1" style={{ color: "#0A1A3899" }}>{e.description}</p>
                   {e.includes && e.includes.length > 0 && (
@@ -2683,24 +2747,35 @@ export default function App() {
   return (
     <div style={{ fontFamily: "'Inter',sans-serif", minHeight: "100vh" }}>
       <style>{GLOBAL_STYLE}</style>
+      <SmoothScroll />
       <Nav page={page} setPage={setPage} session={session} setAuthOpen={setAuthOpen} signOut={signOut} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onAuthed={onAuthed} />}
       {resetToken && <ResetPasswordModal token={resetToken} onDone={() => { setResetToken(null); setAuthOpen(true); }} />}
-      {page === "home" && <Home setPage={setPage} courses={courses} loading={coursesLoading} />}
-      {page === "courses" && <Courses courses={courses} loading={coursesLoading} error={coursesError} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} onSelectCourse={viewCourseDetail} />}
-      {page === "course-detail" && <CourseDetail course={activeCourse} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} onBack={() => setPage("courses")} />}
-      {page === "bundles" && <Bundles bundles={bundles} loading={bundlesLoading} error={bundlesError} session={session} allCourses={courses} />}
-      {page === "ebooks" && <Ebooks ebooks={ebooks} loading={ebooksLoading} error={ebooksError} />}
-      {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} session={session} onAnswer={answerQuestion} onDelete={deleteQuestion} />}
-      {page === "admin" && session && <AdminHub session={session} courses={courses} />}
-      {page === "dashboard" && session && <Dashboard session={session} courses={courses} enrollments={enrollments} loading={enrollLoading} openCourse={openCourse} />}
-      {page === "player" && session && <Player course={activeCourse} session={session} token={session.access_token} />}
-      {page === "privacy" && <PrivacyPolicy />}
-      {page === "terms" && <TermsAndConditions />}
-      {page === "cookies" && <CookiesPolicy />}
-      {page === "refund" && <RefundPolicy />}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={page}
+          initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={prefersReducedMotion ? undefined : { opacity: 0, y: -10 }}
+          transition={{ duration: 0.25, ease: "easeOut" }}
+        >
+          {page === "home" && <Home setPage={setPage} courses={courses} loading={coursesLoading} />}
+          {page === "courses" && <Courses courses={courses} loading={coursesLoading} error={coursesError} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} onSelectCourse={viewCourseDetail} />}
+          {page === "course-detail" && <CourseDetail course={activeCourse} session={session} checkout={checkout} checkingOut={checkingOut} selarCheckout={selarCheckout} onBack={() => setPage("courses")} />}
+          {page === "bundles" && <Bundles bundles={bundles} loading={bundlesLoading} error={bundlesError} session={session} allCourses={courses} />}
+          {page === "ebooks" && <Ebooks ebooks={ebooks} loading={ebooksLoading} error={ebooksError} />}
+          {page === "community" && <Community questions={questions} loading={questionsLoading} error={questionsError} onAsk={askQuestion} onOpenChat={() => setChatOpen(true)} session={session} onAnswer={answerQuestion} onDelete={deleteQuestion} />}
+          {page === "admin" && session && <AdminHub session={session} courses={courses} />}
+          {page === "dashboard" && session && <Dashboard session={session} courses={courses} enrollments={enrollments} loading={enrollLoading} openCourse={openCourse} />}
+          {page === "player" && session && <Player course={activeCourse} session={session} token={session.access_token} />}
+          {page === "privacy" && <PrivacyPolicy />}
+          {page === "terms" && <TermsAndConditions />}
+          {page === "cookies" && <CookiesPolicy />}
+          {page === "refund" && <RefundPolicy />}
+        </motion.div>
+      </AnimatePresence>
       <footer style={{ background: "#0A1A38" }} className="pt-14 pb-8">
-        <div className="max-w-6xl mx-auto px-5">
+        <Reveal className="max-w-6xl mx-auto px-5">
           <Logo />
           <p className="mt-4 text-sm max-w-xs" style={{ color: "#8CA0C4" }}>Impacting innovation through building design — construction software training for architects, engineers, and builders.</p>
           <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-xs" style={{ color: "#8CA0C4" }}>
@@ -2712,7 +2787,7 @@ export default function App() {
           <div className="mt-6 pt-6 border-t text-xs text-center" style={{ borderColor: "#ffffff14", color: "#8CA0C4" }}>
             © {new Date().getFullYear()} Gsol Design Academy Ltd. All rights reserved.
           </div>
-        </div>
+        </Reveal>
       </footer>
       <ChatWidget open={chatOpen} setOpen={setChatOpen} />
       <CookieConsent />
