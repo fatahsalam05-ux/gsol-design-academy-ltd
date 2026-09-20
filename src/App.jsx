@@ -476,7 +476,7 @@ function Nav({ page, setPage, session, setAuthOpen, signOut, menuOpen, setMenuOp
     : [["home", "Home"], ["courses", "Courses"], ["bundles", "Bundles"], ["ebooks", "Ebooks"], ["community", "Community"]];
   return (
     <header ref={navRef} className="sticky top-0 z-40 transition-all" style={{ background: scrolled ? "#0A1A38F2" : "#0A1A38", backdropFilter: "blur(10px)", borderBottom: scrolled ? "1px solid #ffffff14" : "1px solid transparent", boxShadow: scrolled ? "0 8px 30px #0A1A3840" : "none" }}>
-      <div className="max-w-6xl mx-auto px-5 flex items-center justify-between transition-all" style={{ height: scrolled ? 56 : 64 }}>
+      <div className="max-w-[1600px] mx-auto px-5 flex items-center justify-between transition-all" style={{ height: scrolled ? 56 : 64 }}>
         <button onClick={() => setPage("home")}><Logo /></button>
         <nav className="hidden md:flex items-center gap-1">
           {items.map(([id, label]) => (
@@ -717,7 +717,7 @@ function Home({ setPage, courses, loading }) {
     <div style={{ background: "#F7F8FA" }}>
       {announcements.length > 0 && (
         <div style={{ background: "#0A1A38" }} className="py-2.5 overflow-hidden">
-          <div className="max-w-6xl mx-auto px-5 flex items-center gap-3 text-sm" style={{ color: "#7FC0FF" }}>
+          <div className="max-w-[1600px] mx-auto px-5 flex items-center gap-3 text-sm" style={{ color: "#7FC0FF" }}>
             <Bell size={13} className="flex-shrink-0" />
             <span className="truncate"><strong>{announcements[0].title}:</strong> {announcements[0].body}</span>
           </div>
@@ -730,7 +730,7 @@ function Home({ setPage, courses, loading }) {
         <div className="absolute top-10 -right-20 w-72 h-72 rounded-full float pointer-events-none" style={{ background: "radial-gradient(circle,#3DA5FF3a,transparent 70%)" }} />
         <div className="absolute bottom-0 -left-24 w-96 h-96 rounded-full float pointer-events-none" style={{ background: "radial-gradient(circle,#1E56A030,transparent 70%)", animationDelay: "1.5s" }} />
 
-        <div className="max-w-6xl mx-auto px-5 pt-20 pb-24 relative">
+        <div className="max-w-[1600px] mx-auto px-5 pt-20 pb-24 relative">
           <Reveal>
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium mb-6" style={{ background: "#3DA5FF1f", color: "#7FC0FF", border: "1px solid #3DA5FF40" }}>
               <Sparkles size={13} /> Trusted by 5,000+ students across 7+ African countries
@@ -793,13 +793,13 @@ function Home({ setPage, courses, loading }) {
 
       {/* TRUST STRIP */}
       <div className="py-4" style={{ background: "#0F2450" }}>
-        <div className="max-w-6xl mx-auto px-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-2 text-xs" style={{ color: "#8CA0C4", fontFamily: "'JetBrains Mono',monospace" }}>
+        <div className="max-w-[1600px] mx-auto px-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-2 text-xs" style={{ color: "#8CA0C4", fontFamily: "'JetBrains Mono',monospace" }}>
           <span>REVIT</span><span>AUTOCAD</span><span>ARCHICAD</span><span>SKETCHUP</span><span>ETABS</span><span>PROTASTRUCTURE</span><span>ORION</span><span>PLANSWIFT</span>
         </div>
       </div>
 
       {/* POPULAR COURSES */}
-      <section className="max-w-6xl mx-auto px-5 py-20">
+      <section className="max-w-[1600px] mx-auto px-5 py-20">
         <Reveal>
           <div className="flex items-end justify-between mb-8 flex-wrap gap-3">
             <div>
@@ -834,7 +834,7 @@ function Home({ setPage, courses, loading }) {
 
       {/* WHY US vs typical platforms */}
       <section className="py-20" style={{ background: "#0A1A38" }}>
-        <div className="max-w-6xl mx-auto px-5">
+        <div className="max-w-[1600px] mx-auto px-5">
           <Reveal>
             <div className="text-xs font-semibold tracking-widest mb-2 text-center" style={{ color: "#3DA5FF", fontFamily: "'JetBrains Mono',monospace" }}>WHY GSOL</div>
             <h2 className="text-center mb-14" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2rem", color: "#fff" }}>Built for construction professionals, not generic video hosting</h2>
@@ -860,7 +860,7 @@ function Home({ setPage, courses, loading }) {
       </section>
 
       {/* FINAL CTA */}
-      <section className="max-w-6xl mx-auto px-5 pb-20">
+      <section className="max-w-[1600px] mx-auto px-5 pb-20">
         <Reveal>
           <div className="rounded-3xl p-12 text-center relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E56A0,#0A1A38)" }}>
             <div className="absolute -top-10 -left-10 w-56 h-56 rounded-full float" style={{ background: "radial-gradient(circle,#3DA5FF40,transparent 70%)" }} />
@@ -881,7 +881,7 @@ function Courses({ courses, loading, error, session, checkout, checkingOut, sela
   const weekend = isWeekendPromo();
   return (
     <div style={{ background: "#F7F8FA" }}>
-      <div className="max-w-6xl mx-auto px-5 py-14">
+      <div className="max-w-[1600px] mx-auto px-5 py-14">
         <TitleBlock label="INDEX" code="ALL COURSES" />
         <h2 className="mt-4 mb-8" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.2rem", color: "#0A1A38" }}>Course catalog</h2>
         {error && (
@@ -1194,7 +1194,7 @@ function Dashboard({ session, courses, enrollments, loading, openCourse }) {
 
   return (
     <div style={{ background: "#F7F8FA", minHeight: "70vh" }}>
-      <div className="max-w-6xl mx-auto px-5 py-14">
+      <div className="max-w-[1600px] mx-auto px-5 py-14">
         <TitleBlock label="STUDENT" code={(session?.profile?.full_name || session?.user?.email || "").split("@")[0].toUpperCase()} />
         <h2 className="mt-4 mb-8" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.2rem", color: "#0A1A38" }}>My learning</h2>
 
@@ -1361,11 +1361,11 @@ function Player({ course, session, token }) {
   const done = Object.values(progress).filter(Boolean).length;
   const pct = lessons.length ? Math.round((done / lessons.length) * 100) : 0;
 
-  if (!course) return <div className="max-w-6xl mx-auto px-5 py-12" style={{ color: "#0A1A3899" }}>Pick a course from your dashboard.</div>;
+  if (!course) return <div className="max-w-[1600px] mx-auto px-5 py-12" style={{ color: "#0A1A3899" }}>Pick a course from your dashboard.</div>;
 
   return (
     <div style={{ background: "#F7F8FA" }} className="min-h-[70vh]">
-      <div className="max-w-6xl mx-auto px-5 py-8 grid lg:grid-cols-[280px_1fr] gap-6">
+      <div className="max-w-[1600px] mx-auto px-5 py-8 grid lg:grid-cols-[280px_1fr] gap-6">
         <aside className="rounded-2xl border p-4 h-fit" style={{ borderColor: "#0A1A3814", background: "#fff" }}>
           <TitleBlock label="NO." code={course.code} />
           <h3 className="mt-3 font-semibold" style={{ fontFamily: "'Oswald',sans-serif", color: "#0A1A38" }}>{course.title}</h3>
@@ -1570,7 +1570,7 @@ function Bundles({ bundles, loading, error, session, allCourses }) {
   const [picking, setPicking] = useState(null);
   return (
     <div style={{ background: "#F7F8FA" }}>
-      <div className="max-w-6xl mx-auto px-5 py-14">
+      <div className="max-w-[1600px] mx-auto px-5 py-14">
         <TitleBlock label="INDEX" code="BUNDLES" />
         <h2 className="mt-4 mb-3" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.2rem", color: "#0A1A38" }}>Buy more, pay less</h2>
         <p className="mb-8 text-sm max-w-lg" style={{ color: "#0A1A3899" }}>Pick multiple courses in one bundle and save compared to buying them one at a time.</p>
@@ -2208,7 +2208,7 @@ function AdminHub({ session, courses }) {
 
   return (
     <div style={{ background: "#F7F8FA", minHeight: "70vh" }}>
-      <div className="max-w-6xl mx-auto px-5 py-14">
+      <div className="max-w-[1600px] mx-auto px-5 py-14">
         <TitleBlock label="ADMIN" code="CONTROL PANEL" />
         <h2 className="mt-4 mb-6" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.2rem", color: "#0A1A38" }}>Admin</h2>
         {tab === "overview" && <AdminOverview session={session} stats={stats} />}
@@ -2492,7 +2492,7 @@ function Ebooks({ ebooks, loading, error }) {
   const weekend = isWeekendPromo();
   return (
     <div style={{ background: "#F7F8FA" }}>
-      <div className="max-w-6xl mx-auto px-5 py-14">
+      <div className="max-w-[1600px] mx-auto px-5 py-14">
         <TitleBlock label="INDEX" code="EBOOKS" />
         <h2 className="mt-4 mb-3" style={{ fontFamily: "'Oswald',sans-serif", fontWeight: 700, fontSize: "2.2rem", color: "#0A1A38" }}>Ebooks &amp; guides</h2>
         <p className="mb-8 text-sm max-w-lg" style={{ color: "#0A1A3899" }}>Instant-download PDF guides, checklists, and templates — no course enrollment needed, read on any device.</p>
@@ -2775,7 +2775,7 @@ export default function App() {
         </motion.div>
       </AnimatePresence>
       <footer style={{ background: "#0A1A38" }} className="pt-14 pb-8">
-        <Reveal className="max-w-6xl mx-auto px-5">
+        <Reveal className="max-w-[1600px] mx-auto px-5">
           <Logo />
           <p className="mt-4 text-sm max-w-xs" style={{ color: "#8CA0C4" }}>Impacting innovation through building design — construction software training for architects, engineers, and builders.</p>
           <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-xs" style={{ color: "#8CA0C4" }}>
